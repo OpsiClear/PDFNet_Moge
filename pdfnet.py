@@ -28,18 +28,15 @@ import torch
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.pdfnet.config_types import PDFNetConfig
+from src.pdfnet.config import PDFNetConfig
 
 
 @dataclass
 class TrainCommand:
     """Train a PDFNet model."""
 
-    config: PDFNetConfig = field(default_factory=PDFNetConfig)
-    """Training configuration."""
-
     config_file: Path | None = None
-    """Load configuration from YAML file."""
+    """Load configuration from YAML file (uses defaults if not specified)."""
 
     resume: Path | None = None
     """Resume training from checkpoint."""
@@ -50,41 +47,40 @@ class TrainCommand:
         from src.pdfnet.args import get_args_parser
         import argparse
 
-        # Load config from file if provided
-        if self.config_file and self.config_file.exists():
-            self.config = PDFNetConfig.load(self.config_file)
+        # Load config from file if provided, otherwise use defaults
+        config = PDFNetConfig.load(self.config_file) if self.config_file and self.config_file.exists() else PDFNetConfig()
 
         # Create legacy args for compatibility
         parser = argparse.ArgumentParser(parents=[get_args_parser()])
         args = parser.parse_args(args=[])
 
         # Update args from typed config
-        args.model = self.config.model.name
-        args.batch_size = self.config.training.batch_size
-        args.epochs = self.config.training.epochs
-        args.lr = self.config.training.optimizer.lr
-        args.weight_decay = self.config.training.optimizer.weight_decay
-        args.data_path = str(self.config.data.root_path)
-        args.input_size = self.config.data.input_size
-        args.device = self.config.device
-        args.num_workers = self.config.training.num_workers
-        args.seed = self.config.training.seed
-        args.eval_metric = self.config.training.eval_metric
-        args.checkpoints_save_path = str(self.config.output.checkpoint_dir)
-        args.output_dir = str(self.config.output.save_dir)
-        args.DEBUG = self.config.debug
+        args.model = config.model.name
+        args.batch_size = config.training.batch_size
+        args.epochs = config.training.epochs
+        args.lr = config.training.optimizer.lr
+        args.weight_decay = config.training.optimizer.weight_decay
+        args.data_path = str(config.data.root_path)
+        args.input_size = config.data.input_size
+        args.device = config.device
+        args.num_workers = config.training.num_workers
+        args.seed = config.training.seed
+        args.eval_metric = config.training.eval_metric
+        args.checkpoints_save_path = str(config.output.checkpoint_dir)
+        args.output_dir = str(config.output.save_dir)
+        args.DEBUG = config.debug
 
         if self.resume:
             args.resume = str(self.resume)
 
         # Print configuration
         print("Training Configuration:")
-        print(f"  Model: {self.config.model.name}")
-        print(f"  Epochs: {self.config.training.epochs}")
-        print(f"  Batch Size: {self.config.training.batch_size}")
-        print(f"  Learning Rate: {self.config.training.optimizer.lr}")
-        print(f"  Dataset: {self.config.data.dataset} @ {self.config.data.root_path}")
-        print(f"  Device: {self.config.device}")
+        print(f"  Model: {config.model.name}")
+        print(f"  Epochs: {config.training.epochs}")
+        print(f"  Batch Size: {config.training.batch_size}")
+        print(f"  Learning Rate: {config.training.optimizer.lr}")
+        print(f"  Dataset: {config.data.dataset} @ {config.data.root_path}")
+        print(f"  Device: {config.device}")
 
         # Run training
         train_main(args)
@@ -121,7 +117,7 @@ class InferCommand:
     def run(self) -> None:
         """Execute inference."""
         from src.pdfnet.inference import PDFNetInference
-        from src.pdfnet.config_types import PDFNetConfig
+        from src.pdfnet.config import PDFNetConfig
         import cv2
         import numpy as np
 

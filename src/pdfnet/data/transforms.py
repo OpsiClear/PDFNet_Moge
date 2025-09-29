@@ -1,336 +1,562 @@
 """
-Unified transforms module for PDFNet.
+Type-safe transforms module using Python 3.12 type hints.
 
-This module consolidates all data augmentation and transformation classes.
+This module provides fully typed data augmentation and transformation classes
+for training and inference pipelines.
 """
 
-import torch
-import numpy as np
+from __future__ import annotations
+
+from typing import TypedDict, Protocol, Any, TypeAlias
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
 import random
-import torchvision.transforms as transforms
+
+import torch
 import torch.nn.functional as F
-from torchvision.transforms.functional import normalize
+import torchvision.transforms as T
+import torchvision.transforms.functional as TF
+import numpy as np
+import numpy.typing as npt
 from PIL import Image
 
-
-class ComposeTransforms:
-    """Compose multiple transforms together."""
-
-    def __init__(self, transforms_list):
-        self.transforms = transforms_list
-
-    def __call__(self, sample):
-        for t in self.transforms:
-            sample = t(sample)
-        return sample
+# Type aliases
+Tensor: TypeAlias = torch.Tensor
+ArrayLike: TypeAlias = npt.NDArray[Any] | Tensor | Image.Image
 
 
-class BaseTransform:
-    """Base class for all transforms with probability control."""
+class SampleDict(TypedDict, total=False):
+    """Type definition for data samples."""
 
-    def __init__(self, prob=1.0):
+    image: Tensor
+    gt: Tensor
+    depth: Tensor
+    label: Tensor
+    image_name: str
+    image_size: tuple[int, int]
+
+
+class Transform(Protocol):
+    """Protocol for transform callables."""
+
+    def __call__(self, sample: SampleDict) -> SampleDict: ...
+
+
+class BaseTransform(ABC):
+    """Abstract base class for probabilistic transforms."""
+
+    prob: float
+
+    def __init__(self, prob: float = 1.0) -> None:
+        """
+        Initialize transform with probability.
+
+        Args:
+            prob: Probability of applying this transform [0, 1]
+        """
         self.prob = prob
 
-    def should_apply(self):
+    def should_apply(self) -> bool:
+        """Check if transform should be applied based on probability."""
         return random.random() < self.prob
 
-    def __call__(self, sample):
+    @abstractmethod
+    def apply(self, sample: SampleDict) -> SampleDict:
+        """Apply the transformation to the sample."""
+        ...
+
+    def __call__(self, sample: SampleDict) -> SampleDict:
+        """
+        Apply transform with probability.
+
+        Args:
+            sample: Input sample dictionary
+
+        Returns:
+            Transformed sample
+        """
         if self.should_apply():
             return self.apply(sample)
         return sample
 
-    def apply(self, sample):
-        raise NotImplementedError
+
+class ComposeTransforms:
+    """Compose multiple transforms sequentially."""
+
+    transforms: Sequence[Transform]
+
+    def __init__(self, transforms: Sequence[Transform]) -> None:
+        """
+        Initialize composition.
+
+        Args:
+            transforms: Sequence of transforms to apply
+        """
+        self.transforms = list(transforms)
+
+    def __call__(self, sample: SampleDict) -> SampleDict:
+        """Apply all transforms in sequence."""
+        for transform in self.transforms:
+            sample = transform(sample)
+        return sample
+
+    def __len__(self) -> int:
+        """Get number of transforms."""
+        return len(self.transforms)
+
+    def __getitem__(self, index: int) -> Transform:
+        """Get transform at index."""
+        return self.transforms[index]
 
 
-class RandomAffine(BaseTransform):
-    """Random affine transformation."""
+class ToTensor:
+    """Convert numpy arrays or PIL images to tensors."""
 
-    def __init__(self, prob=0.5, degrees=30, translate=(0, 0.25),
-                 scale=(0.8, 1.2), shear=15):
-        super().__init__(prob)
-        self.transform = transforms.RandomAffine(
-            degrees=degrees, translate=translate,
-            scale=scale, shear=shear, fill=0
-        )
+    def __call__(self, sample: SampleDict) -> SampleDict:
+        """
+        Convert sample components to tensors.
 
-    def apply(self, sample):
-        image, gt = sample['image'], sample['gt']
-        # Apply to both image and ground truth
-        combined = torch.cat([image, gt], dim=0)
-        combined = self.transform(combined)
-        sample['image'] = combined[:3, :, :]
-        sample['gt'] = combined[3:, :, :]
+        Args:
+            sample: Input sample with numpy/PIL components
+
+        Returns:
+            Sample with tensor components
+        """
+        to_tensor = T.ToTensor()
+
+        if "image" in sample:
+            sample["image"] = self._to_tensor(sample["image"], to_tensor)
+
+        if "gt" in sample:
+            sample["gt"] = self._to_tensor(sample["gt"], to_tensor)
+
+        if "depth" in sample:
+            sample["depth"] = self._to_tensor(sample["depth"], to_tensor)
+
+        return sample
+
+    def _to_tensor(self, data: ArrayLike, converter: T.ToTensor) -> Tensor:
+        """Convert various data types to tensor."""
+        if isinstance(data, torch.Tensor):
+            return data
+        elif isinstance(data, np.ndarray):
+            tensor = torch.from_numpy(data).float()
+            if tensor.dim() == 2:
+                tensor = tensor.unsqueeze(0)
+            elif tensor.dim() == 3 and tensor.shape[-1] in (1, 3):
+                tensor = tensor.permute(2, 0, 1)
+            return tensor
+        elif isinstance(data, Image.Image):
+            return converter(data)
+        else:
+            raise TypeError(f"Unsupported data type: {type(data)}")
+
+
+class Normalize:
+    """Normalize image tensors."""
+
+    mean: tuple[float, float, float]
+    std: tuple[float, float, float]
+
+    def __init__(
+        self,
+        mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
+        std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+    ) -> None:
+        """
+        Initialize normalization.
+
+        Args:
+            mean: Per-channel mean values
+            std: Per-channel standard deviation values
+        """
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, sample: SampleDict) -> SampleDict:
+        """Apply normalization to image."""
+        if "image" in sample:
+            sample["image"] = TF.normalize(sample["image"], self.mean, self.std)
         return sample
 
 
-class RandomPerspective(BaseTransform):
-    """Random perspective transformation."""
+class Resize:
+    """Resize images and masks."""
 
-    def __init__(self, prob=0.5, distortion_scale=0.5):
-        super().__init__(prob)
-        self.transform = transforms.RandomPerspective(
-            distortion_scale=distortion_scale, p=1.0
-        )
+    size: tuple[int, int]
 
-    def apply(self, sample):
-        image, gt = sample['image'], sample['gt']
-        combined = torch.cat([image, gt], dim=0)
-        combined = self.transform(combined)
-        sample['image'] = combined[:3, :, :]
-        sample['gt'] = combined[3:, :, :]
+    def __init__(self, size: int | tuple[int, int]) -> None:
+        """
+        Initialize resize transform.
+
+        Args:
+            size: Target size (height, width) or single value for square
+        """
+        self.size = (size, size) if isinstance(size, int) else tuple(size)
+
+    def __call__(self, sample: SampleDict) -> SampleDict:
+        """Resize image and ground truth."""
+        if "image" in sample:
+            sample["image"] = F.interpolate(
+                sample["image"].unsqueeze(0),
+                size=self.size,
+                mode="bilinear",
+                align_corners=False
+            )[0]
+
+        if "gt" in sample:
+            sample["gt"] = F.interpolate(
+                sample["gt"].unsqueeze(0),
+                size=self.size,
+                mode="nearest"
+            )[0]
+
+        if "depth" in sample:
+            sample["depth"] = F.interpolate(
+                sample["depth"].unsqueeze(0),
+                size=self.size,
+                mode="bilinear",
+                align_corners=False
+            )[0]
+
         return sample
 
 
-class GaussianNoise(BaseTransform):
-    """Add Gaussian noise to images."""
+class RandomFlip(BaseTransform):
+    """Random horizontal and vertical flips."""
 
-    def __init__(self, prob=0.5, max_std=0.2):
+    horizontal: bool
+    vertical: bool
+
+    def __init__(
+        self,
+        prob: float = 0.5,
+        horizontal: bool = True,
+        vertical: bool = False
+    ) -> None:
+        """
+        Initialize flip transform.
+
+        Args:
+            prob: Probability of applying flip
+            horizontal: Enable horizontal flip
+            vertical: Enable vertical flip
+        """
         super().__init__(prob)
-        self.max_std = max_std
+        self.horizontal = horizontal
+        self.vertical = vertical
 
-    def apply(self, sample):
-        image = sample['image']
-        noise = torch.randn(image.shape) * torch.rand(1) * self.max_std
-        sample['image'] = image + noise
+    def apply(self, sample: SampleDict) -> SampleDict:
+        """Apply random flips."""
+        image = sample.get("image")
+        gt = sample.get("gt")
+        depth = sample.get("depth")
+
+        if image is None:
+            return sample
+
+        # Horizontal flip
+        if self.horizontal and random.random() > 0.5:
+            image = TF.hflip(image)
+            if gt is not None:
+                gt = TF.hflip(gt)
+            if depth is not None:
+                depth = TF.hflip(depth)
+
+        # Vertical flip
+        if self.vertical and random.random() > 0.5:
+            image = TF.vflip(image)
+            if gt is not None:
+                gt = TF.vflip(gt)
+            if depth is not None:
+                depth = TF.vflip(depth)
+
+        sample["image"] = image
+        if gt is not None:
+            sample["gt"] = gt
+        if depth is not None:
+            sample["depth"] = depth
+
         return sample
 
 
 class RandomRotation(BaseTransform):
     """Random rotation with center crop."""
 
-    def __init__(self, prob=0.5, degrees=180):
+    degrees: float
+
+    def __init__(self, prob: float = 0.5, degrees: float = 30) -> None:
+        """
+        Initialize rotation transform.
+
+        Args:
+            prob: Probability of applying rotation
+            degrees: Maximum rotation angle
+        """
         super().__init__(prob)
         self.degrees = degrees
 
-    def apply(self, sample):
+    def apply(self, sample: SampleDict) -> SampleDict:
+        """Apply random rotation."""
         angle = random.uniform(-self.degrees, self.degrees)
-        image, gt = sample['image'], sample['gt']
+
+        image = sample.get("image")
+        gt = sample.get("gt")
+        depth = sample.get("depth")
+
+        if image is None:
+            return sample
 
         # Apply rotation
-        image = transforms.functional.rotate(image, angle)
-        gt = transforms.functional.rotate(gt, angle)
+        image = TF.rotate(image, angle)
+        if gt is not None:
+            gt = TF.rotate(gt, angle)
+        if depth is not None:
+            depth = TF.rotate(depth, angle)
 
-        # Calculate crop to remove black borders
+        # Center crop to remove black borders
         if angle != 0:
-            image, gt = self._center_crop_after_rotate(image, gt, angle)
+            image, gt, depth = self._center_crop_after_rotate(
+                image, gt, depth, angle
+            )
 
-        sample['image'] = image
-        sample['gt'] = gt
+        sample["image"] = image
+        if gt is not None:
+            sample["gt"] = gt
+        if depth is not None:
+            sample["depth"] = depth
+
         return sample
 
-    def _center_crop_after_rotate(self, image, gt, angle):
+    def _center_crop_after_rotate(
+        self,
+        image: Tensor,
+        gt: Tensor | None,
+        depth: Tensor | None,
+        angle: float
+    ) -> tuple[Tensor, Tensor | None, Tensor | None]:
         """Center crop to remove black borders after rotation."""
         _, h, w = image.shape
         angle_rad = abs(np.radians(angle % 180))
-        if angle_rad > np.pi/2:
+
+        if angle_rad > np.pi / 2:
             angle_rad = np.pi - angle_rad
 
-        new_h = int(h / (np.cos(angle_rad) + np.sin(angle_rad)))
-        new_w = new_h
+        new_size = int(min(h, w) / (np.cos(angle_rad) + np.sin(angle_rad)))
 
-        top = (h - new_h) // 2
-        left = (w - new_w) // 2
+        # Center crop
+        image = TF.center_crop(image, new_size)
+        if gt is not None:
+            gt = TF.center_crop(gt, new_size)
+        if depth is not None:
+            depth = TF.center_crop(depth, new_size)
 
-        image = image[:, top:top+new_h, left:left+new_w]
-        gt = gt[:, top:top+new_h, left:left+new_w]
+        # Resize back
+        image = F.interpolate(
+            image.unsqueeze(0), size=(h, w), mode="bilinear"
+        )[0]
 
-        # Resize back to original size
-        image = F.interpolate(image.unsqueeze(0), size=(h, w), mode='bilinear')[0]
-        gt = F.interpolate(gt.unsqueeze(0), size=(h, w), mode='bilinear')[0]
+        if gt is not None:
+            gt = F.interpolate(
+                gt.unsqueeze(0), size=(h, w), mode="nearest"
+            )[0]
 
-        return image, gt
+        if depth is not None:
+            depth = F.interpolate(
+                depth.unsqueeze(0), size=(h, w), mode="bilinear"
+            )[0]
 
-
-class RandomFlip(BaseTransform):
-    """Random horizontal and vertical flips."""
-
-    def __init__(self, prob=0.5, h_flip=True, v_flip=False):
-        super().__init__(prob)
-        self.h_flip = h_flip
-        self.v_flip = v_flip
-
-    def apply(self, sample):
-        image, gt = sample['image'], sample['gt']
-
-        if self.h_flip and random.random() > 0.5:
-            image = transforms.functional.hflip(image)
-            gt = transforms.functional.hflip(gt)
-
-        if self.v_flip and random.random() > 0.5:
-            image = transforms.functional.vflip(image)
-            gt = transforms.functional.vflip(gt)
-
-        sample['image'] = image
-        sample['gt'] = gt
-        return sample
+        return image, gt, depth
 
 
 class ColorJitter(BaseTransform):
     """Color jittering for images."""
 
-    def __init__(self, prob=0.5, brightness=0.2, contrast=0.2,
-                 saturation=0.2, hue=0.1):
+    jitter: T.ColorJitter
+
+    def __init__(
+        self,
+        prob: float = 0.5,
+        brightness: float = 0.2,
+        contrast: float = 0.2,
+        saturation: float = 0.2,
+        hue: float = 0.1
+    ) -> None:
+        """
+        Initialize color jitter.
+
+        Args:
+            prob: Probability of applying jitter
+            brightness: Brightness jitter strength
+            contrast: Contrast jitter strength
+            saturation: Saturation jitter strength
+            hue: Hue jitter strength
+        """
         super().__init__(prob)
-        self.transform = transforms.ColorJitter(
-            brightness=brightness, contrast=contrast,
-            saturation=saturation, hue=hue
+        self.jitter = T.ColorJitter(
+            brightness=brightness,
+            contrast=contrast,
+            saturation=saturation,
+            hue=hue
         )
 
-    def apply(self, sample):
-        sample['image'] = self.transform(sample['image'])
+    def apply(self, sample: SampleDict) -> SampleDict:
+        """Apply color jittering."""
+        if "image" in sample:
+            sample["image"] = self.jitter(sample["image"])
+        return sample
+
+
+class GaussianNoise(BaseTransform):
+    """Add Gaussian noise to images."""
+
+    max_std: float
+
+    def __init__(self, prob: float = 0.5, max_std: float = 0.1) -> None:
+        """
+        Initialize Gaussian noise.
+
+        Args:
+            prob: Probability of applying noise
+            max_std: Maximum standard deviation for noise
+        """
+        super().__init__(prob)
+        self.max_std = max_std
+
+    def apply(self, sample: SampleDict) -> SampleDict:
+        """Add Gaussian noise."""
+        if "image" in sample:
+            image = sample["image"]
+            std = torch.rand(1).item() * self.max_std
+            noise = torch.randn_like(image) * std
+            sample["image"] = torch.clamp(image + noise, 0, 1)
         return sample
 
 
 class RandomCrop(BaseTransform):
     """Random crop with resize."""
 
-    def __init__(self, prob=0.5, crop_ratio=(0.8, 1.0)):
+    crop_ratio: tuple[float, float]
+
+    def __init__(
+        self,
+        prob: float = 0.5,
+        crop_ratio: tuple[float, float] = (0.8, 1.0)
+    ) -> None:
+        """
+        Initialize random crop.
+
+        Args:
+            prob: Probability of applying crop
+            crop_ratio: Range of crop size ratios
+        """
         super().__init__(prob)
         self.crop_ratio = crop_ratio
 
-    def apply(self, sample):
-        image, gt = sample['image'], sample['gt']
-        _, h, w = image.shape
+    def apply(self, sample: SampleDict) -> SampleDict:
+        """Apply random crop."""
+        image = sample.get("image")
+        gt = sample.get("gt")
+        depth = sample.get("depth")
 
+        if image is None:
+            return sample
+
+        _, h, w = image.shape
         crop_factor = random.uniform(*self.crop_ratio)
         new_h = int(h * crop_factor)
         new_w = int(w * crop_factor)
 
+        # Random crop position
         top = random.randint(0, h - new_h)
         left = random.randint(0, w - new_w)
 
-        image = image[:, top:top+new_h, left:left+new_w]
-        gt = gt[:, top:top+new_h, left:left+new_w]
+        # Crop
+        image = TF.crop(image, top, left, new_h, new_w)
+        if gt is not None:
+            gt = TF.crop(gt, top, left, new_h, new_w)
+        if depth is not None:
+            depth = TF.crop(depth, top, left, new_h, new_w)
 
         # Resize back
-        image = F.interpolate(image.unsqueeze(0), size=(h, w), mode='bilinear')[0]
-        gt = F.interpolate(gt.unsqueeze(0), size=(h, w), mode='nearest')[0]
-
-        sample['image'] = image
-        sample['gt'] = gt
-        return sample
-
-
-class Normalize:
-    """Normalize image tensors."""
-
-    def __init__(self, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, sample):
-        if 'image' in sample:
-            sample['image'] = normalize(sample['image'], self.mean, self.std)
-        return sample
-
-
-class Resize:
-    """Resize images and ground truth."""
-
-    def __init__(self, size):
-        self.size = size if isinstance(size, (list, tuple)) else (size, size)
-
-    def __call__(self, sample):
-        image = sample['image']
-        gt = sample['gt']
-
-        # Resize
         image = F.interpolate(
-            image.unsqueeze(0), size=self.size, mode='bilinear'
-        )[0]
-        gt = F.interpolate(
-            gt.unsqueeze(0), size=self.size, mode='nearest'
+            image.unsqueeze(0), size=(h, w), mode="bilinear"
         )[0]
 
-        sample['image'] = image
-        sample['gt'] = gt
-        return sample
+        if gt is not None:
+            gt = F.interpolate(
+                gt.unsqueeze(0), size=(h, w), mode="nearest"
+            )[0]
 
+        if depth is not None:
+            depth = F.interpolate(
+                depth.unsqueeze(0), size=(h, w), mode="bilinear"
+            )[0]
 
-class ToTensor:
-    """Convert numpy arrays or PIL images to tensors."""
-
-    def __call__(self, sample):
-        to_tensor = transforms.ToTensor()
-
-        if 'image' in sample:
-            if isinstance(sample['image'], np.ndarray):
-                sample['image'] = torch.from_numpy(sample['image']).float()
-                if sample['image'].dim() == 2:
-                    sample['image'] = sample['image'].unsqueeze(0)
-                elif sample['image'].dim() == 3 and sample['image'].shape[-1] == 3:
-                    sample['image'] = sample['image'].permute(2, 0, 1)
-            elif isinstance(sample['image'], Image.Image):
-                sample['image'] = to_tensor(sample['image'])
-
-        if 'gt' in sample:
-            if isinstance(sample['gt'], np.ndarray):
-                sample['gt'] = torch.from_numpy(sample['gt']).float()
-                if sample['gt'].dim() == 2:
-                    sample['gt'] = sample['gt'].unsqueeze(0)
-            elif isinstance(sample['gt'], Image.Image):
-                sample['gt'] = to_tensor(sample['gt'])
+        sample["image"] = image
+        if gt is not None:
+            sample["gt"] = gt
+        if depth is not None:
+            sample["depth"] = depth
 
         return sample
 
 
-class AugmentationPipeline:
+def create_training_pipeline(
+    input_size: int = 1024,
+    augment: bool = True,
+    mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
+    std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+) -> ComposeTransforms:
     """
-    Unified augmentation pipeline for training.
+    Create standard training augmentation pipeline.
 
-    Example:
-        pipeline = AugmentationPipeline.create_training_pipeline()
-        sample = pipeline(sample)
+    Args:
+        input_size: Target input size
+        augment: Enable augmentation
+        mean: Normalization mean
+        std: Normalization std
+
+    Returns:
+        Composed transform pipeline
     """
+    transforms: list[Transform] = [ToTensor()]
 
-    @staticmethod
-    def create_training_pipeline(input_size=1024, augment=True):
-        """Create standard training augmentation pipeline."""
-        transforms_list = [ToTensor()]
-
-        if augment:
-            transforms_list.extend([
-                RandomFlip(prob=0.5),
-                RandomRotation(prob=0.3, degrees=30),
-                RandomAffine(prob=0.3),
-                RandomPerspective(prob=0.2),
-                RandomCrop(prob=0.3),
-                ColorJitter(prob=0.5),
-                GaussianNoise(prob=0.2),
-            ])
-
-        transforms_list.extend([
-            Resize(input_size),
-            Normalize(),
+    if augment:
+        transforms.extend([
+            RandomFlip(prob=0.5, horizontal=True),
+            RandomRotation(prob=0.3, degrees=30),
+            RandomCrop(prob=0.3, crop_ratio=(0.8, 1.0)),
+            ColorJitter(prob=0.5),
+            GaussianNoise(prob=0.2, max_std=0.05),
         ])
 
-        return ComposeTransforms(transforms_list)
+    transforms.extend([
+        Resize(input_size),
+        Normalize(mean, std),
+    ])
 
-    @staticmethod
-    def create_validation_pipeline(input_size=1024):
-        """Create standard validation pipeline (no augmentation)."""
-        return ComposeTransforms([
-            ToTensor(),
-            Resize(input_size),
-            Normalize(),
-        ])
-
-    @staticmethod
-    def create_test_pipeline(input_size=1024):
-        """Create test pipeline."""
-        return ComposeTransforms([
-            ToTensor(),
-            Resize(input_size),
-            Normalize(),
-        ])
+    return ComposeTransforms(transforms)
 
 
-# Backward compatibility aliases
-GOSNormalize = Normalize
-GOSrandomAffine = RandomAffine
-GOSrandomPerspective = RandomPerspective
-GOSGaussianNoise = GaussianNoise
-GOSrandomRotation = RandomRotation
-GOSrandomFlip = RandomFlip
-GOSrandomCrop = RandomCrop
+def create_validation_pipeline(
+    input_size: int = 1024,
+    mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
+    std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+) -> ComposeTransforms:
+    """
+    Create validation pipeline (no augmentation).
+
+    Args:
+        input_size: Target input size
+        mean: Normalization mean
+        std: Normalization std
+
+    Returns:
+        Composed transform pipeline
+    """
+    return ComposeTransforms([
+        ToTensor(),
+        Resize(input_size),
+        Normalize(mean, std),
+    ])
