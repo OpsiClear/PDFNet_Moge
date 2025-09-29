@@ -10,3 +10,10 @@ from .transforms import (
     GOSResize,
     GOSRandomCrop
 )
+
+__all__ = [
+    "GOSNormalize",
+    "GOSRandomHFlip",
+    "GOSResize", 
+    "GOSRandomCrop"
+]
