@@ -8,7 +8,6 @@ type hints and dataclasses for type safety and validation.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Annotated
-from collections.abc import Sequence
 
 import tyro
 

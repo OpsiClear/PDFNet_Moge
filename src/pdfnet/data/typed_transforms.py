@@ -7,9 +7,9 @@ for training and inference pipelines.
 
 from __future__ import annotations
 
-from typing import TypedDict, Protocol, Any, TypeAlias, TYPE_CHECKING
+from typing import TypedDict, Protocol, Any, TypeAlias
 from abc import ABC, abstractmethod
-from collections.abc import Sequence, Callable
+from collections.abc import Sequence
 import random
 
 import torch

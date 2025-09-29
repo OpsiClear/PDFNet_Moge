@@ -19,8 +19,8 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.pdfnet.config import load_config, Config
-from src.pdfnet.inference import PDFNetInference, run_inference
+from src.pdfnet.config import load_config
+from src.pdfnet.inference import run_inference
 
 
 def train_command(args):
@@ -115,7 +115,7 @@ def infer_command(args):
             output = "results"
 
     # Run inference
-    result = run_inference(
+    run_inference(
         input_path=args.input,
         output_path=output,
         config=args.config,
@@ -175,7 +175,7 @@ def download_command(args):
         return 1
 
     if args.dataset:
-        print(f"\nTo download the DIS-5K dataset, please visit:")
+        print("\nTo download the DIS-5K dataset, please visit:")
         print("https://github.com/xuebinqin/DIS")
         print("\nPlace the dataset in DATA/DIS-DATA/ directory")
 
@@ -212,7 +212,7 @@ def config_command(args):
                 # Try to parse value
                 try:
                     d[keys[-1]] = eval(value)
-                except:
+                except (ValueError, SyntaxError, NameError):
                     d[keys[-1]] = value
 
         with open(output_path, 'w') as f:

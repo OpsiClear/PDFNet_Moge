@@ -14,7 +14,7 @@ import sys
 import os
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Annotated, Literal
+from typing import Literal
 
 # Fix encoding issues on Windows
 if sys.platform == "win32":
@@ -28,7 +28,7 @@ import torch
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.pdfnet.config_types import PDFNetConfig, InferenceConfig
+from src.pdfnet.config_types import PDFNetConfig
 
 
 @dataclass
@@ -121,7 +121,7 @@ class InferCommand:
     def run(self) -> None:
         """Execute inference."""
         from src.pdfnet.inference import PDFNetInference
-        from src.pdfnet.config_types import PDFNetConfig, InferenceConfig
+        from src.pdfnet.config_types import PDFNetConfig
         import cv2
         import numpy as np
 
@@ -244,7 +244,7 @@ class TestCommand:
         # Set test datasets
         args.datasets = self.datasets
 
-        print(f"Testing Configuration:")
+        print("Testing Configuration:")
         print(f"  Checkpoint: {self.checkpoint}")
         print(f"  Datasets: {', '.join(self.datasets)}")
         print(f"  Output: {self.output_dir}")

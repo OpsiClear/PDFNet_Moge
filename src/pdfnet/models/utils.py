@@ -534,7 +534,8 @@ def show_gray_images(images, m=8, alpha=3, cmap='coolwarm',save_path=None):
             plt.imshow(images[0], cmap=cmap)
             plt.axis('off')
         else:
-            if m > n: m = n
+            if m > n:
+                m = n
             num_rows = (n + m - 1) // m
             fig, axes = plt.subplots(num_rows, m, figsize=(m * 2*alpha, num_rows * 2*alpha))
             plt.subplots_adjust(wspace=0.05, hspace=0.05)

@@ -7,7 +7,7 @@ including single image, batch processing, and test-time augmentation.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 from pathlib import Path
 from collections.abc import Sequence, Iterator
 import warnings

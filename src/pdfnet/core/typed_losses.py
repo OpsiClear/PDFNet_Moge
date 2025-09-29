@@ -6,15 +6,13 @@ This module provides fully typed loss functions for training PDFNet models.
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias, overload
-from collections.abc import Mapping
+from typing import Literal, TypeAlias, overload, Any
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
 # Type aliases
 Tensor: TypeAlias = torch.Tensor

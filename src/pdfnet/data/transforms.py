@@ -10,7 +10,7 @@ import random
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 from torchvision.transforms.functional import normalize
-from PIL import Image, ImageEnhance
+from PIL import Image
 
 
 class ComposeTransforms:

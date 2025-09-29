@@ -24,7 +24,6 @@ import random
 from torch.cuda.amp import autocast, GradScaler
 import shutil
 import sys
-from .common_utils import get_files
 
 
 def copy_allfiles(src, dest, not_case=["valid_sample", "runs"]):
@@ -286,7 +285,7 @@ def train_main(args):
 
         loss_list = []
         model.train()
-        epoch_loss, epoch_R_loss = 0, 0
+        epoch_loss, _epoch_R_loss = 0, 0
         epoch_target_loss = 0
         epoch_starttime = datetime.datetime.now()
         iters = 0

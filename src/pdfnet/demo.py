@@ -12,8 +12,6 @@ import os
 import torch
 import cv2
 import numpy as np
-from pathlib import Path
-from PIL import Image
 
 from .models.PDFNet import build_model
 from .args import get_args_parser

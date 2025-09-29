@@ -206,10 +206,10 @@ def eval(this_checkpoints_dir,model,epoch,test_datatset,test_loader,best_valid,t
             name, inputs, gt, labels = data['image_name'], data['image'],data['gt'], data['label']
             depth = data['depth']
             if args.device!='cpu':
-                inputs_v, labels_v = Variable(inputs.to(args.device), requires_grad=False), Variable(labels.to(args.device), requires_grad=False)
+                inputs_v, _labels_v = Variable(inputs.to(args.device), requires_grad=False), Variable(labels.to(args.device), requires_grad=False)
                 depth_v = Variable(depth.to(args.device), requires_grad=False)
             else:
-                inputs_v, labels_v = Variable(inputs, requires_grad=False), Variable(labels, requires_grad=False)
+                inputs_v, _labels_v = Variable(inputs, requires_grad=False), Variable(labels, requires_grad=False)
                 depth_v = Variable(depth, requires_grad=False)
             pred_grad,_ = model.inference(inputs_v,depth_v)
             for k in range(inputs.shape[0]):

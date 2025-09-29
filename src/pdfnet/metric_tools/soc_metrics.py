@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import argparse
 from pathlib import Path
-from ..common_utils import get_files
 
 _EPS = 1e-16
 _TYPE = np.float64

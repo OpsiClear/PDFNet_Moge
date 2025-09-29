@@ -6,7 +6,6 @@ This module provides configuration loading and validation.
 
 import yaml
 import os
-from pathlib import Path
 from typing import Dict, Any, Optional
 import argparse
 

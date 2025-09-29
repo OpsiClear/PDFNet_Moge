@@ -12,11 +12,10 @@ from pathlib import Path
 from typing import Optional, Union, List, Tuple
 import ttach as tta
 from tqdm import tqdm
-from PIL import Image
 
 from .models.PDFNet import build_model
 from .config import Config, load_config
-from .data.transforms import Normalize, Resize, ToTensor
+from .data.transforms import Normalize
 
 
 class PDFNetInference:
@@ -285,7 +284,7 @@ class PDFNetInference:
             List of segmentation masks
         """
         results = []
-        iterator = tqdm(images, desc="Processing images") if progress else images
+        tqdm(images, desc="Processing images") if progress else images
 
         for i in range(0, len(images), batch_size):
             batch = images[i:i+batch_size]

@@ -105,7 +105,7 @@ class FSE(nn.Module):
         patch_size = H//patch_ratio
         # patch_stride = int(patch_size * (1 - overlap_ratio))
 
-        image_size = x.shape[-1]
+        x.shape[-1]
         steps = patch_ratio
 
         x_patch_list = []
