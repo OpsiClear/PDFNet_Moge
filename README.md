@@ -38,12 +38,28 @@ Dichotomous Image Segmentation (DIS) is a high-precision object segmentation tas
 
 ![image](pics/Framwork.png)
 ## Installation
-```
-conda create -n PDFNet python = 3.11.4
-conda activate PDFNet
 
-pip install -r requirements.txt
+### Using UV (Recommended)
+```bash
+# Install UV
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+# curl -LsSf https://astral.sh/uv/install.sh | sh  # macOS/Linux
+
+# Install PDFNet with all dependencies (including MoGe)
+uv pip install -e .
+
+# Download required model weights
+python download.py
 ```
+
+### Traditional Method
+```bash
+conda create -n PDFNet python=3.11.4
+conda activate PDFNet
+pip install -r requirements.txt  # Note: This method requires manual MoGe setup
+```
+
+For detailed installation instructions, see [INSTALL.md](INSTALL.md).
 ## Dataset Preparation
 
 Please download the [DIS-5K dataset](https://github.com/xuebinqin/DIS) first and place them in the "**data**" directory. The structure of the "**data**" folder should be as follows:
@@ -63,24 +79,29 @@ PDFNet
 Download [Swin-B weights](https://github.com/SwinTransformer/storage/releases/download/v1.0.0/swin_base_patch4_window12_384_22k.pth)  into '**checkpoints**'.
 
 ### Depth Preparation
-Please download the [DAM-V2 Project](https://github.com/DepthAnything/Depth-Anything-V2) and place them into the DAM-V2 and download the [DAM-V2 weights](https://github.com/DepthAnything/Depth-Anything-V2) into the '**checkpoints**'.
-Now you can use the '**DAM-V2/Depth-preprare.ipynb**' to generate the pseudo-depth map for training and testing.
+PDFNet now uses [MoGe (Monocular Geometry)](https://github.com/microsoft/MoGe) with the `Ruicheng/moge-2-vitl-normal` model for more accurate depth estimation instead of DepthAnything V2. MoGe is automatically installed as a dependency when you install PDFNet with UV.
+
+Use the '**MoGe/Depth-prepare.ipynb**' notebook to generate pseudo-depth maps for training and testing. The moge-2-vitl-normal variant provides better depth integrity and accuracy compared to previous methods.
 
 # Training
 
 Run
+```bash
+# Using the new UV package structure
+pdfnet-train --data_path DATA/DIS-DATA --model PDFNet_swinB
+
+# Or using the package directly
+python -m pdfnet.train --data_path DATA/DIS-DATA --model PDFNet_swinB
 ```
-python Train_PDFNet.py
-```
-If you wanna change the training datasets, you can open the '**dataoloaders/Mydataset.py**' '**build_dataset**' function to add the other datasets.
+If you want to change the training datasets, you can modify the `src/pdfnet/dataloaders/Mydataset.py` `build_dataset` function to add other datasets.
 
 # Test and metric
 
-Open the '**metric_tools/Test**'  to change the '**save_dir**' and open the '**soc_metric**' to change the '**gt_roots**' and '**cycle_roots**' to what you need.
-Run
-```
-cd metric_tools
-python Test.py
+The testing and metric tools are available in the package. You can modify the settings in `src/pdfnet/metric_tools/Test.py` and `src/pdfnet/metric_tools/soc_metrics.py` as needed.
+
+Run testing:
+```bash
+python -m pdfnet.metric_tools.Test
 ```
 
 # Different training datasets results and checkpoints

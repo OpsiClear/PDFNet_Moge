@@ -1,0 +1,96 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[project]
+dependencies = [
+  "torch>=1.9.0",
+  "torchvision>=0.10.0",
+  "numpy>=1.21.0",
+  "einops>=0.6.0",
+  "Pillow>=9.0.0",
+  "timm>=0.6.0",
+  "opencv-python",
+  "matplotlib>=3.5.3",
+  "tqdm>=4.65.2",
+  "scipy>=1.7.3",
+  "scikit-learn>=1.7.1",
+  "huggingface_hub>=0.20.0",
+  "GitPython>=3.1.0",
+  "gradio>=4.0.0",
+  "gradio_imageslider>=0.0.18",
+  "loadimg>=0.1.1",
+  "spaces>=0.1.0",
+  "tyro>=0.9.32",
+  "moge",
+  "ipykernel>=6.30.1",
+  "ttach>=0.0.3",
+  "scikit-image>=0.25.2",
+  "gdown>=5.2.0",
+]
+description = "PDFNet: Patch-Depth Fusion for Dichotomous Image Segmentation"
+name = "pdfnet"
+readme = "README.md"
+requires-python = ">=3.12"
+version = "0.1.0"
+authors = [
+  {name = "Xianjie Liu", email = ""},
+  {name = "Keren Fu", email = ""},
+  {name = "Qijun Zhao", email = ""},
+]
+license = {file = "LICENSE"}
+keywords = [
+  "deep-learning",
+  "computer-vision", 
+  "image-segmentation",
+  "dichotomous-segmentation",
+  "pytorch",
+  "depth-estimation",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+[project.urls]
+Homepage = "https://github.com/Tennineee/PDFNet"
+Repository = "https://github.com/Tennineee/PDFNet"
+Documentation = "https://github.com/Tennineee/PDFNet"
+"Bug Reports" = "https://github.com/Tennineee/PDFNet/issues"
+
+[project.scripts]
+pdfnet-train = "pdfnet.train:main"
+pdfnet-demo = "pdfnet.demo:main"
+
+[tool.uv.sources]
+torch = [
+  {index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'"},
+]
+torchvision = [
+  {index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'"},
+]
+moge = { git = "https://github.com/microsoft/MoGe.git", subdirectory = ".", rev = "main" }
+
+[[tool.uv.index]]
+explicit = true
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pdfnet"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/README.md",
+  "/LICENSE",
+  "/requirements.txt",
+]
