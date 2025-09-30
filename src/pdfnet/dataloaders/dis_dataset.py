@@ -1,24 +1,38 @@
+import os
+import random
+
 import torch
 import numpy as np
-import random
+import cv2
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 from PIL import Image, ImageEnhance
-import os
-import cv2
 import torch.nn.functional as F
 from torchvision.transforms.functional import normalize
 from torchvision.transforms import ColorJitter
 import glob
 from tqdm import tqdm
-from ..common_utils import get_files
 
-class GOSrandomAffine(object):
-    def __init__(self, prob=0.5):
+def get_files(PATH: str | list[str]) -> list[str]:
+    """Get all files in a directory recursively."""
+    file_list: list[str] = []
+    if isinstance(PATH, str):
+        for filepath, dirnames, filenames in os.walk(PATH):
+            for filename in filenames:
+                file_list.append(os.path.join(filepath, filename))
+    elif isinstance(PATH, list):
+        for path in PATH:
+            for filepath, dirnames, filenames in os.walk(path):
+                for filename in filenames:
+                    file_list.append(os.path.join(filepath, filename))
+    return file_list
+
+class GOSrandomAffine:
+    def __init__(self, prob: float = 0.5) -> None:
         self.prob = prob
-        self.transform = transforms.RandomAffine(degrees=30, translate=(0,0.25), scale=(0.8,1.2), shear=15, fill=0) 
+        self.transform = transforms.RandomAffine(degrees=30, translate=(0, 0.25), scale=(0.8, 1.2), shear=15, fill=0)
 
-    def __call__(self, sample):
+    def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if random.random() < self.prob:
             image, gt = sample['image'], sample['gt']
             
@@ -34,12 +48,12 @@ class GOSrandomAffine(object):
         
         return sample
 
-class GOSrandomPerspective(object):
-    def __init__(self, prob=0.5, distortion_scale=0.5, p=1.0):
+class GOSrandomPerspective:
+    def __init__(self, prob: float = 0.5, distortion_scale: float = 0.5, p: float = 1.0) -> None:
         self.prob = prob
         self.transform = transforms.RandomPerspective(distortion_scale=distortion_scale, p=p)
 
-    def __call__(self, sample):
+    def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if random.random() < self.prob:
             image, gt = sample['image'], sample['gt']
             
@@ -55,12 +69,13 @@ class GOSrandomPerspective(object):
         
         return sample
 
-class GOSGaussianNoise(object):
-    def __init__(self, max_std=0.2, prob=0.5):
+class GOSGaussianNoise:
+    def __init__(self, max_std: float = 0.2, prob: float = 0.5) -> None:
         super().__init__()
         self.max_std = max_std
         self.prob = prob
-    def __call__(self, sample):
+
+    def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if random.random() < self.prob:
             image =  sample['image']
             noise = torch.randn(image.shape) * torch.rand(1) * self.max_std
@@ -68,7 +83,7 @@ class GOSGaussianNoise(object):
             sample['image'] = noisy_img_tensor
         return sample
 
-def rotate_and_crop(img, angle):
+def rotate_and_crop(img: torch.Tensor, angle: float) -> torch.Tensor:
     rotated_img = transforms.functional.rotate(img, angle)
     _, h_orig, w_orig = img.shape
     theta = abs(torch.tensor(np.radians(angle % 180)))
@@ -82,11 +97,11 @@ def rotate_and_crop(img, angle):
     cropped_img = transforms.functional.resize(cropped_img, (h_orig, w_orig))
     return cropped_img
 
-class GOSrandomRotation(object):
-    def __init__(self,prob=0.5):
+class GOSrandomRotation:
+    def __init__(self, prob: float = 0.5) -> None:
         self.prob = prob
 
-    def __call__(self,sample):
+    def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         
         if random.random() < self.prob:
             image, gt, depth =  sample['image'], sample['gt'], sample['depth']
@@ -103,11 +118,11 @@ class GOSrandomRotation(object):
             sample['depth_large'] = depth_large
         return sample
 
-class GOSColorEnhance(object):
-    def __init__(self, prob=0.5):
+class GOSColorEnhance:
+    def __init__(self, prob: float = 0.5) -> None:
         self.prob = prob
 
-    def __call__(self, sample):
+    def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if random.random() < self.prob:
             image = sample['image'] * 255.0
             # print(image.max())
@@ -130,12 +145,12 @@ class GOSColorEnhance(object):
         
         return sample
 
-class GOSColorJitter(object):
-    def __init__(self, prob=0.5):
+class GOSColorJitter:
+    def __init__(self, prob: float = 0.5) -> None:
         self.prob = prob
-        self.ColorJitter = ColorJitter(0.1,0.1,0.1,0.1)
+        self.ColorJitter = ColorJitter(0.1, 0.1, 0.1, 0.1)
 
-    def __call__(self,sample):
+    def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         
         if random.random() < self.prob:
             image = sample['image']
@@ -310,7 +325,9 @@ class GOSTorchRandomCrop(object):
 
         return sample
 
-class MyDataset(Dataset):
+class DISDataset(Dataset):
+    """Dataset for Dichotomous Image Segmentation (DIS)."""
+
     def __init__(self,root,transform=[],chached=False,size=[224,224],stoi=None,istrain=0,use_gt=True):
         self.istrain = istrain
         self.imlists = get_files(root)
@@ -407,8 +424,8 @@ def build_dataset(is_train,args):
         train_data_path = [
             args.data_path+'/DIS-TR/images',
                            ]
-        return MyDataset(train_data_path,transform=[
-            #方位
+        return DISDataset(train_data_path,transform=[
+            # Random flip
             GOSRandomHFlip(0.5),
             # GOSrandomPerspective(0.5),
             # GOSrandomAffine(0.5),
@@ -416,21 +433,21 @@ def build_dataset(is_train,args):
             # GOSRandombackground2same(1),
             # GOSRandombackground2edgesame(1),
             # GOSRandomimg2Grayedge(0.25),
-            #颜色
+            # Color augmentation
             # GOSColorJitter(0.5),
             GOSColorEnhance(0.5),
             GOSRandomGray(0.25),
-            #放大
+            # Random crop
             GOSRandomUPCrop(0.5),
             # GOSTorchRandomCrop(0.5),
-            #标准化
+            # Normalization
             GOSNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            #噪声
+            # Noise
             # GOSGaussianNoise(0.1,prob=0.5),
             ],chached=args.chached,size=[args.input_size,args.input_size],istrain=True)
     else:
         valid_data_path = args.data_path+'/DIS-VD/images'
-        return MyDataset(valid_data_path,transform=[GOSNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])],chached=args.chached,size=[args.input_size,args.input_size])
+        return DISDataset(valid_data_path,transform=[GOSNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])],chached=args.chached,size=[args.input_size,args.input_size])
 def keep_n_files(directory, n=3):
     files = [(file_path, os.path.getmtime(file_path)) for file_path in glob.glob(os.path.join(directory, '*'))]
     

@@ -4,9 +4,7 @@ Type-safe loss functions using Python 3.12 type hints.
 This module provides fully typed loss functions for training PDFNet models.
 """
 
-from __future__ import annotations
-
-from typing import Literal, TypeAlias, overload, Any
+from typing import overload, Literal, Any
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 
@@ -14,22 +12,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Type aliases
-Tensor: TypeAlias = torch.Tensor
-LossDict: TypeAlias = dict[str, Tensor]
-ReductionType: TypeAlias = Literal["none", "mean", "sum"]
-
 
 class BaseLoss(nn.Module, ABC):
     """Abstract base class for loss functions with type safety."""
 
     weight: float
-    reduction: ReductionType
+    reduction: Literal["none", "mean", "sum"]
 
     def __init__(
-        self,
-        weight: float = 1.0,
-        reduction: ReductionType = "mean"
+        self, weight: float = 1.0, reduction: Literal["none", "mean", "sum"] = "mean"
     ) -> None:
         """
         Initialize base loss.
@@ -43,11 +34,11 @@ class BaseLoss(nn.Module, ABC):
         self.reduction = reduction
 
     @abstractmethod
-    def compute_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute the actual loss value."""
         ...
 
-    def forward(self, pred: Tensor, target: Tensor) -> Tensor:
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
         Forward pass with weight application.
 
@@ -70,8 +61,8 @@ class BCEWithLogitsLoss(BaseLoss):
     def __init__(
         self,
         weight: float = 1.0,
-        reduction: ReductionType = "mean",
-        pos_weight: float | None = None
+        reduction: Literal["none", "mean", "sum"] = "mean",
+        pos_weight: float | None = None,
     ) -> None:
         """
         Initialize BCE loss.
@@ -84,14 +75,12 @@ class BCEWithLogitsLoss(BaseLoss):
         super().__init__(weight, reduction)
         self.pos_weight = pos_weight
 
-    def compute_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute BCE with logits loss."""
         if self.pos_weight is not None:
             pos_weight_tensor = torch.ones_like(target) * self.pos_weight
             return F.binary_cross_entropy_with_logits(
-                pred, target,
-                pos_weight=pos_weight_tensor,
-                reduction=self.reduction
+                pred, target, pos_weight=pos_weight_tensor, reduction=self.reduction
             )
         return F.binary_cross_entropy_with_logits(
             pred, target, reduction=self.reduction
@@ -107,7 +96,7 @@ class IoULoss(BaseLoss):
         self,
         weight: float = 1.0,
         smooth: float = 1e-6,
-        reduction: ReductionType = "mean"
+        reduction: Literal["none", "mean", "sum"] = "mean",
     ) -> None:
         """
         Initialize IoU loss.
@@ -120,7 +109,7 @@ class IoULoss(BaseLoss):
         super().__init__(weight, reduction)
         self.smooth = smooth
 
-    def compute_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute IoU loss."""
         pred_sigmoid = torch.sigmoid(pred)
 
@@ -152,7 +141,7 @@ class DiceLoss(BaseLoss):
         self,
         weight: float = 1.0,
         smooth: float = 1e-6,
-        reduction: ReductionType = "mean"
+        reduction: Literal["none", "mean", "sum"] = "mean",
     ) -> None:
         """
         Initialize Dice loss.
@@ -165,7 +154,7 @@ class DiceLoss(BaseLoss):
         super().__init__(weight, reduction)
         self.smooth = smooth
 
-    def compute_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute Dice loss."""
         pred_sigmoid = torch.sigmoid(pred)
 
@@ -194,14 +183,14 @@ class SSIMLoss(BaseLoss):
 
     window_size: int
     sigma: float
-    _window: Tensor | None
+    _window: torch.Tensor | None
 
     def __init__(
         self,
         weight: float = 1.0,
         window_size: int = 11,
         sigma: float = 1.5,
-        reduction: ReductionType = "mean"
+        reduction: Literal["none", "mean", "sum"] = "mean",
     ) -> None:
         """
         Initialize SSIM loss.
@@ -217,13 +206,13 @@ class SSIMLoss(BaseLoss):
         self.sigma = sigma
         self._window = None
 
-    def _get_gaussian_window(self, device: torch.device) -> Tensor:
+    def _get_gaussian_window(self, device: torch.device) -> torch.Tensor:
         """Get or create Gaussian window."""
         if self._window is None or self._window.device != device:
             coords = torch.arange(self.window_size, device=device)
             coords = coords - self.window_size // 2
 
-            gauss = torch.exp(-(coords ** 2) / (2 * self.sigma ** 2))
+            gauss = torch.exp(-(coords**2) / (2 * self.sigma**2))
             gauss = gauss / gauss.sum()
 
             window = gauss.unsqueeze(1).mm(gauss.unsqueeze(0))
@@ -231,27 +220,35 @@ class SSIMLoss(BaseLoss):
 
         return self._window
 
-    def compute_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute SSIM loss."""
         pred_sigmoid = torch.sigmoid(pred)
         window = self._get_gaussian_window(pred.device)
 
         # Compute SSIM components
-        mu1 = F.conv2d(pred_sigmoid, window, padding=self.window_size//2)
-        mu2 = F.conv2d(target, window, padding=self.window_size//2)
+        mu1 = F.conv2d(pred_sigmoid, window, padding=self.window_size // 2)
+        mu2 = F.conv2d(target, window, padding=self.window_size // 2)
 
         mu1_sq = mu1.pow(2)
         mu2_sq = mu2.pow(2)
         mu1_mu2 = mu1 * mu2
 
-        sigma1_sq = F.conv2d(pred_sigmoid*pred_sigmoid, window, padding=self.window_size//2) - mu1_sq
-        sigma2_sq = F.conv2d(target*target, window, padding=self.window_size//2) - mu2_sq
-        sigma12 = F.conv2d(pred_sigmoid*target, window, padding=self.window_size//2) - mu1_mu2
+        sigma1_sq = (
+            F.conv2d(pred_sigmoid * pred_sigmoid, window, padding=self.window_size // 2)
+            - mu1_sq
+        )
+        sigma2_sq = (
+            F.conv2d(target * target, window, padding=self.window_size // 2) - mu2_sq
+        )
+        sigma12 = (
+            F.conv2d(pred_sigmoid * target, window, padding=self.window_size // 2)
+            - mu1_mu2
+        )
 
-        C1 = 0.01 ** 2
-        C2 = 0.03 ** 2
+        C1 = 0.01**2
+        C2 = 0.03**2
 
-        ssim_map = ((2*mu1_mu2 + C1) * (2*sigma12 + C2)) / (
+        ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / (
             (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
         )
 
@@ -276,7 +273,7 @@ class FocalLoss(BaseLoss):
         weight: float = 1.0,
         alpha: float = 0.25,
         gamma: float = 2.0,
-        reduction: ReductionType = "mean"
+        reduction: Literal["none", "mean", "sum"] = "mean",
     ) -> None:
         """
         Initialize Focal loss.
@@ -291,7 +288,7 @@ class FocalLoss(BaseLoss):
         self.alpha = alpha
         self.gamma = gamma
 
-    def compute_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute Focal loss."""
         pred_sigmoid = torch.sigmoid(pred)
 
@@ -324,7 +321,7 @@ class IntegrityPriorLoss(BaseLoss):
         epsilon: float = 1e-8,
         max_variance: float = 0.05,
         max_grad: float = 0.05,
-        reduction: ReductionType = "mean"
+        reduction: Literal["none", "mean", "sum"] = "mean",
     ) -> None:
         """
         Initialize Integrity Prior loss.
@@ -342,14 +339,16 @@ class IntegrityPriorLoss(BaseLoss):
         self.max_grad = max_grad
 
         # Register Sobel kernels
-        self.register_buffer("sobel_x", torch.tensor(
-            [[[[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]]], dtype=torch.float32
-        ))
-        self.register_buffer("sobel_y", torch.tensor(
-            [[[[-1, -2, -1], [0, 0, 0], [1, 2, 1]]]], dtype=torch.float32
-        ))
+        self.register_buffer(
+            "sobel_x",
+            torch.tensor([[[[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]]], dtype=torch.float32),
+        )
+        self.register_buffer(
+            "sobel_y",
+            torch.tensor([[[[-1, -2, -1], [0, 0, 0], [1, 2, 1]]]], dtype=torch.float32),
+        )
 
-    def compute_loss(self, pred: Tensor, depth: Tensor) -> Tensor:
+    def compute_loss(self, pred: torch.Tensor, depth: torch.Tensor) -> torch.Tensor:
         """
         Compute integrity prior loss.
 
@@ -385,12 +384,18 @@ class IntegrityPriorLoss(BaseLoss):
 
         # Compute integrity score
         integrity = 1 - torch.maximum(
-            torch.minimum(grad_mag, torch.tensor(self.max_grad, device=grad_mag.device)),
-            torch.minimum(depth_var, torch.tensor(self.max_variance, device=depth_var.device))
+            torch.minimum(
+                grad_mag, torch.tensor(self.max_grad, device=grad_mag.device)
+            ),
+            torch.minimum(
+                depth_var, torch.tensor(self.max_variance, device=depth_var.device)
+            ),
         )
 
         # Weighted BCE loss
-        loss = F.binary_cross_entropy(pred_sigmoid, pred_sigmoid.detach(), reduction="none")
+        loss = F.binary_cross_entropy(
+            pred_sigmoid, pred_sigmoid.detach(), reduction="none"
+        )
         loss = loss * integrity
 
         # Apply reduction
@@ -457,31 +462,31 @@ class CombinedLoss(nn.Module):
     @overload
     def forward(
         self,
-        pred: Tensor,
-        target: Tensor,
+        pred: torch.Tensor,
+        target: torch.Tensor,
         *,
         depth: None = None,
-        return_dict: Literal[False] = False
-    ) -> Tensor: ...
+        return_dict: Literal[False] = False,
+    ) -> torch.Tensor: ...
 
     @overload
     def forward(
         self,
-        pred: Tensor,
-        target: Tensor,
+        pred: torch.Tensor,
+        target: torch.Tensor,
         *,
-        depth: Tensor | None = None,
-        return_dict: Literal[True]
-    ) -> LossDict: ...
+        depth: torch.Tensor | None = None,
+        return_dict: Literal[True],
+    ) -> dict[str, torch.Tensor]: ...
 
     def forward(
         self,
-        pred: Tensor,
-        target: Tensor,
+        pred: torch.Tensor,
+        target: torch.Tensor,
         *,
-        depth: Tensor | None = None,
-        return_dict: bool = False
-    ) -> Tensor | LossDict:
+        depth: torch.Tensor | None = None,
+        return_dict: bool = False,
+    ) -> torch.Tensor | dict[str, torch.Tensor]:
         """
         Compute combined loss.
 
@@ -494,7 +499,7 @@ class CombinedLoss(nn.Module):
         Returns:
             Total loss or dictionary of losses
         """
-        loss_dict: LossDict = {}
+        loss_dict: dict[str, torch.Tensor] = {}
         total_loss = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
 
         for name, loss_fn in self.losses.items():
@@ -546,8 +551,7 @@ class LossFactory:
         """
         if name not in cls._registry:
             raise ValueError(
-                f"Unknown loss: {name}. "
-                f"Available: {list(cls._registry.keys())}"
+                f"Unknown loss: {name}. Available: {list(cls._registry.keys())}"
             )
 
         return cls._registry[name](**kwargs)

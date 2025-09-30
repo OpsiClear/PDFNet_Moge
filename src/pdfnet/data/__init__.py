@@ -5,15 +5,25 @@ This module contains dataset classes, data loaders, and transforms.
 """
 
 from .transforms import (
-    GOSNormalize,
-    GOSRandomHFlip,
-    GOSResize,
-    GOSRandomCrop
+    ToTensor,
+    Normalize,
+    Resize,
+    RandomFlip,
+    RandomRotation,
+    RandomCrop,
+    ColorJitter,
+    GaussianNoise,
+    ComposeTransforms,
 )
 
 __all__ = [
-    "GOSNormalize",
-    "GOSRandomHFlip",
-    "GOSResize", 
-    "GOSRandomCrop"
+    "ToTensor",
+    "Normalize",
+    "Resize",
+    "RandomFlip",
+    "RandomRotation",
+    "RandomCrop",
+    "ColorJitter",
+    "GaussianNoise",
+    "ComposeTransforms",
 ]

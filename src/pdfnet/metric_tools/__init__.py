@@ -1,23 +1,25 @@
 """PDFNet metric tools module."""
 
 from .metrics import (
-    calculate_mae,
-    calculate_f1,
-    calculate_iou
+    Fmeasure,
+    MAE,
+    Smeasure,
+    Emeasure,
+    WeightedFmeasure
 )
 from .basics import (
     f1score_torch,
-    calculate_metrics
-)
-from .F1torch import (
-    f1_score_torch
+    mae_torch,
+    maximal_f_measure_torch
 )
 
 __all__ = [
-    "calculate_mae",
-    "calculate_f1",
-    "calculate_iou",
+    "Fmeasure",
+    "MAE",
+    "Smeasure",
+    "Emeasure",
+    "WeightedFmeasure",
     "f1score_torch",
-    "calculate_metrics",
-    "f1_score_torch"
+    "mae_torch",
+    "maximal_f_measure_torch"
 ]

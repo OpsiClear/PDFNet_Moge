@@ -3,7 +3,10 @@
     "allow": [
       "Bash(uv run:*)",
       "Bash(python:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git rm:*)",
+      "Bash(git lfs:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

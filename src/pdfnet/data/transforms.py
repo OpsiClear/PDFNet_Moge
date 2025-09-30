@@ -5,33 +5,27 @@ This module provides fully typed data augmentation and transformation classes
 for training and inference pipelines.
 """
 
-from __future__ import annotations
-
-from typing import TypedDict, Protocol, Any, TypeAlias
+from typing import TypedDict, Protocol
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 import random
 
+import numpy as np
+import numpy.typing as npt
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
-import numpy as np
-import numpy.typing as npt
 from PIL import Image
-
-# Type aliases
-Tensor: TypeAlias = torch.Tensor
-ArrayLike: TypeAlias = npt.NDArray[Any] | Tensor | Image.Image
 
 
 class SampleDict(TypedDict, total=False):
     """Type definition for data samples."""
 
-    image: Tensor
-    gt: Tensor
-    depth: Tensor
-    label: Tensor
+    image: torch.Tensor
+    gt: torch.Tensor
+    depth: torch.Tensor
+    label: torch.Tensor
     image_name: str
     image_size: tuple[int, int]
 
@@ -135,7 +129,9 @@ class ToTensor:
 
         return sample
 
-    def _to_tensor(self, data: ArrayLike, converter: T.ToTensor) -> Tensor:
+    def _to_tensor(
+        self, data: npt.NDArray | torch.Tensor | Image.Image, converter: T.ToTensor
+    ) -> torch.Tensor:
         """Convert various data types to tensor."""
         if isinstance(data, torch.Tensor):
             return data
@@ -161,7 +157,7 @@ class Normalize:
     def __init__(
         self,
         mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
-        std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+        std: tuple[float, float, float] = (0.229, 0.224, 0.225),
     ) -> None:
         """
         Initialize normalization.
@@ -201,14 +197,12 @@ class Resize:
                 sample["image"].unsqueeze(0),
                 size=self.size,
                 mode="bilinear",
-                align_corners=False
+                align_corners=False,
             )[0]
 
         if "gt" in sample:
             sample["gt"] = F.interpolate(
-                sample["gt"].unsqueeze(0),
-                size=self.size,
-                mode="nearest"
+                sample["gt"].unsqueeze(0), size=self.size, mode="nearest"
             )[0]
 
         if "depth" in sample:
@@ -216,7 +210,7 @@ class Resize:
                 sample["depth"].unsqueeze(0),
                 size=self.size,
                 mode="bilinear",
-                align_corners=False
+                align_corners=False,
             )[0]
 
         return sample
@@ -229,10 +223,7 @@ class RandomFlip(BaseTransform):
     vertical: bool
 
     def __init__(
-        self,
-        prob: float = 0.5,
-        horizontal: bool = True,
-        vertical: bool = False
+        self, prob: float = 0.5, horizontal: bool = True, vertical: bool = False
     ) -> None:
         """
         Initialize flip transform.
@@ -316,9 +307,7 @@ class RandomRotation(BaseTransform):
 
         # Center crop to remove black borders
         if angle != 0:
-            image, gt, depth = self._center_crop_after_rotate(
-                image, gt, depth, angle
-            )
+            image, gt, depth = self._center_crop_after_rotate(image, gt, depth, angle)
 
         sample["image"] = image
         if gt is not None:
@@ -330,11 +319,11 @@ class RandomRotation(BaseTransform):
 
     def _center_crop_after_rotate(
         self,
-        image: Tensor,
-        gt: Tensor | None,
-        depth: Tensor | None,
-        angle: float
-    ) -> tuple[Tensor, Tensor | None, Tensor | None]:
+        image: torch.Tensor,
+        gt: torch.Tensor | None,
+        depth: torch.Tensor | None,
+        angle: float,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """Center crop to remove black borders after rotation."""
         _, h, w = image.shape
         angle_rad = abs(np.radians(angle % 180))
@@ -352,19 +341,13 @@ class RandomRotation(BaseTransform):
             depth = TF.center_crop(depth, new_size)
 
         # Resize back
-        image = F.interpolate(
-            image.unsqueeze(0), size=(h, w), mode="bilinear"
-        )[0]
+        image = F.interpolate(image.unsqueeze(0), size=(h, w), mode="bilinear")[0]
 
         if gt is not None:
-            gt = F.interpolate(
-                gt.unsqueeze(0), size=(h, w), mode="nearest"
-            )[0]
+            gt = F.interpolate(gt.unsqueeze(0), size=(h, w), mode="nearest")[0]
 
         if depth is not None:
-            depth = F.interpolate(
-                depth.unsqueeze(0), size=(h, w), mode="bilinear"
-            )[0]
+            depth = F.interpolate(depth.unsqueeze(0), size=(h, w), mode="bilinear")[0]
 
         return image, gt, depth
 
@@ -380,7 +363,7 @@ class ColorJitter(BaseTransform):
         brightness: float = 0.2,
         contrast: float = 0.2,
         saturation: float = 0.2,
-        hue: float = 0.1
+        hue: float = 0.1,
     ) -> None:
         """
         Initialize color jitter.
@@ -394,10 +377,7 @@ class ColorJitter(BaseTransform):
         """
         super().__init__(prob)
         self.jitter = T.ColorJitter(
-            brightness=brightness,
-            contrast=contrast,
-            saturation=saturation,
-            hue=hue
+            brightness=brightness, contrast=contrast, saturation=saturation, hue=hue
         )
 
     def apply(self, sample: SampleDict) -> SampleDict:
@@ -439,9 +419,7 @@ class RandomCrop(BaseTransform):
     crop_ratio: tuple[float, float]
 
     def __init__(
-        self,
-        prob: float = 0.5,
-        crop_ratio: tuple[float, float] = (0.8, 1.0)
+        self, prob: float = 0.5, crop_ratio: tuple[float, float] = (0.8, 1.0)
     ) -> None:
         """
         Initialize random crop.
@@ -479,19 +457,13 @@ class RandomCrop(BaseTransform):
             depth = TF.crop(depth, top, left, new_h, new_w)
 
         # Resize back
-        image = F.interpolate(
-            image.unsqueeze(0), size=(h, w), mode="bilinear"
-        )[0]
+        image = F.interpolate(image.unsqueeze(0), size=(h, w), mode="bilinear")[0]
 
         if gt is not None:
-            gt = F.interpolate(
-                gt.unsqueeze(0), size=(h, w), mode="nearest"
-            )[0]
+            gt = F.interpolate(gt.unsqueeze(0), size=(h, w), mode="nearest")[0]
 
         if depth is not None:
-            depth = F.interpolate(
-                depth.unsqueeze(0), size=(h, w), mode="bilinear"
-            )[0]
+            depth = F.interpolate(depth.unsqueeze(0), size=(h, w), mode="bilinear")[0]
 
         sample["image"] = image
         if gt is not None:
@@ -506,7 +478,7 @@ def create_training_pipeline(
     input_size: int = 1024,
     augment: bool = True,
     mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+    std: tuple[float, float, float] = (0.229, 0.224, 0.225),
 ) -> ComposeTransforms:
     """
     Create standard training augmentation pipeline.
@@ -523,18 +495,22 @@ def create_training_pipeline(
     transforms: list[Transform] = [ToTensor()]
 
     if augment:
-        transforms.extend([
-            RandomFlip(prob=0.5, horizontal=True),
-            RandomRotation(prob=0.3, degrees=30),
-            RandomCrop(prob=0.3, crop_ratio=(0.8, 1.0)),
-            ColorJitter(prob=0.5),
-            GaussianNoise(prob=0.2, max_std=0.05),
-        ])
+        transforms.extend(
+            [
+                RandomFlip(prob=0.5, horizontal=True),
+                RandomRotation(prob=0.3, degrees=30),
+                RandomCrop(prob=0.3, crop_ratio=(0.8, 1.0)),
+                ColorJitter(prob=0.5),
+                GaussianNoise(prob=0.2, max_std=0.05),
+            ]
+        )
 
-    transforms.extend([
-        Resize(input_size),
-        Normalize(mean, std),
-    ])
+    transforms.extend(
+        [
+            Resize(input_size),
+            Normalize(mean, std),
+        ]
+    )
 
     return ComposeTransforms(transforms)
 
@@ -542,7 +518,7 @@ def create_training_pipeline(
 def create_validation_pipeline(
     input_size: int = 1024,
     mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
-    std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+    std: tuple[float, float, float] = (0.229, 0.224, 0.225),
 ) -> ComposeTransforms:
     """
     Create validation pipeline (no augmentation).
@@ -555,8 +531,10 @@ def create_validation_pipeline(
     Returns:
         Composed transform pipeline
     """
-    return ComposeTransforms([
-        ToTensor(),
-        Resize(input_size),
-        Normalize(mean, std),
-    ])
+    return ComposeTransforms(
+        [
+            ToTensor(),
+            Resize(input_size),
+            Normalize(mean, std),
+        ]
+    )

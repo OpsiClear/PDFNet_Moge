@@ -1,5 +1,5 @@
 """PDFNet dataloaders module."""
 
-from .Mydataset import build_dataset
+from .dis_dataset import build_dataset, DISDataset
 
-__all__ = ["build_dataset"]
+__all__ = ["build_dataset", "DISDataset"]

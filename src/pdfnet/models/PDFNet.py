@@ -1,20 +1,34 @@
+from collections.abc import Sequence
+import math
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 from einops import rearrange
-from .swin_transformer import SwinB
-from .utils import RMSNorm,SwiGLU,\
-    structure_loss,show_gray_images,_upsample_,_upsample_like,\
-    SSIMLoss,IntegrityPriorLoss,SiLogLoss
-from timm.models.layers import trunc_normal_
+from timm.layers import trunc_normal_
 
-def make_crs(in_dim, out_dim):
+from .swin_transformer import SwinB
+from .utils import (
+    RMSNorm,
+    SwiGLU,
+    structure_loss,
+    show_gray_images,
+    _upsample_,
+    _upsample_like,
+    SSIMLoss,
+    IntegrityPriorLoss,
+    SiLogLoss,
+)
+
+logger = logging.getLogger(__name__)
+
+def make_crs(in_dim: int, out_dim: int) -> nn.Sequential:
     return nn.Sequential(nn.Conv2d(in_dim, out_dim, kernel_size=3, padding=1), RMSNorm(out_dim), nn.SiLU(inplace=True))
 
 class PDF_depth_decoder(nn.Module):
-    def __init__(self, args,raw_ch=3,out_ch=1):
-        super(PDF_depth_decoder, self).__init__()
+    def __init__(self, args, raw_ch: int = 3, out_ch: int = 1) -> None:
+        super().__init__()
         
         emb_dim = 128
         self.Decoder = nn.ModuleList()
@@ -34,9 +48,8 @@ class PDF_depth_decoder(nn.Module):
         self.Bside.append(nn.Conv2d(emb_dim,out_ch,3,padding=1))
         self.Bside.append(nn.Conv2d(emb_dim,out_ch,3,padding=1))
 
-    def forward(self,img,img_feature):
-
-        L1_feature,L2_feature,L3_feature,L4_feature,global_feature = img_feature
+    def forward(self, img: torch.Tensor, img_feature: Sequence[torch.Tensor]) -> list[torch.Tensor]:
+        L1_feature, L2_feature, L3_feature, L4_feature, global_feature = img_feature
 
         De_L4 = self.Decoder[0](torch.cat([global_feature,L4_feature],dim=1))
 
@@ -62,8 +75,8 @@ class PDF_depth_decoder(nn.Module):
         return [final_output,side_1,side_2,side_3,side_4]
 
 class CoA(nn.Module):
-    def __init__(self, emb_dim=128):
-        super(CoA, self).__init__()
+    def __init__(self, emb_dim: int = 128) -> None:
+        super().__init__()
         self.Att = nn.MultiheadAttention(emb_dim,1,bias=False,batch_first=True,dropout=0.1)
         self.Norm1 = RMSNorm(emb_dim,data_format='channels_last')
         self.drop1 = nn.Dropout(0.1)
@@ -71,7 +84,7 @@ class CoA(nn.Module):
         self.Norm2 = RMSNorm(emb_dim,data_format='channels_last')
         self.drop2 = nn.Dropout(0.1)
 
-    def forward(self,q,kv):
+    def forward(self, q: torch.Tensor, kv: torch.Tensor) -> torch.Tensor:
         res = q
         KV_feature = self.Att(q, kv, kv)[0]
         KV_feature = self.Norm1(self.drop1(KV_feature)) + res
@@ -82,8 +95,16 @@ class CoA(nn.Module):
 
 
 class FSE(nn.Module):
-    def __init__(self, img_dim=128, depth_dim=128, patch_dim=128, emb_dim=128, pool_ratio=[1,1,1], patch_ratio=4):
-        super(FSE, self).__init__()
+    def __init__(
+        self,
+        img_dim: int = 128,
+        depth_dim: int = 128,
+        patch_dim: int = 128,
+        emb_dim: int = 128,
+        pool_ratio: list[int] = [1, 1, 1],
+        patch_ratio: int = 4
+    ) -> None:
+        super().__init__()
 
         self.patch_ratio = patch_ratio
         self.pool_ratio = pool_ratio
@@ -100,7 +121,7 @@ class FSE(nn.Module):
     @torch.no_grad()
     def split(self, x: torch.Tensor, patch_ratio: int = 8) -> torch.Tensor:
         """Split the input into small patches with sliding window."""
-        B,C,H,W = x.shape
+        B, C, H, W = x.shape
         patch_stride = H//patch_ratio
         patch_size = H//patch_ratio
         # patch_stride = int(patch_size * (1 - overlap_ratio))
@@ -140,14 +161,14 @@ class FSE(nn.Module):
         output = torch.cat(output_list, dim=-2)
         return output
     
-    def get_boundary(self,pred):
+    def get_boundary(self, pred: torch.Tensor) -> torch.Tensor:
         # return torch.ones_like(pred)
         if pred.shape[-2]//8 % 2 == 0:
             return abs(pred.sigmoid()-F.avg_pool2d(pred.sigmoid(),kernel_size=(pred.shape[-2]//8+1,pred.shape[-1]//8+1),stride=1,padding=(pred.shape[-2]//8//2,pred.shape[-1]//8//2)))
         else:
             return abs(pred.sigmoid()-F.avg_pool2d(pred.sigmoid(),kernel_size=(pred.shape[-2]//8,pred.shape[-1]//8),stride=1,padding=(pred.shape[-2]//8//2,pred.shape[-1]//8//2)))
 
-    def BIS(self,pred):
+    def BIS(self, pred: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if pred.shape[-2]//8 % 2 == 0:
             boundary = 2*self.get_boundary(pred.sigmoid())
             return boundary, F.relu(pred.sigmoid()-5*boundary)
@@ -155,8 +176,14 @@ class FSE(nn.Module):
             boundary = 2*self.get_boundary(pred.sigmoid())
             return boundary, F.relu(pred.sigmoid()-5*boundary)
 
-    def forward(self,img,depth,patch,last_pred):
-        boundary,integrity = self.BIS(last_pred)
+    def forward(
+        self,
+        img: torch.Tensor,
+        depth: torch.Tensor,
+        patch: torch.Tensor,
+        last_pred: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        boundary, integrity = self.BIS(last_pred)
         img = img * _upsample_like(last_pred.sigmoid(),img)
         depth = depth * _upsample_like(last_pred.sigmoid(),depth)
         patch = patch * _upsample_like(last_pred.sigmoid(),patch)
@@ -205,8 +232,8 @@ class FSE(nn.Module):
 
 
 class PDF_decoder(nn.Module):
-    def __init__(self, args,raw_ch=3,out_ch=1):
-        super(PDF_decoder, self).__init__()
+    def __init__(self, args, raw_ch: int = 3, out_ch: int = 1) -> None:
+        super().__init__()
         self.args = args
         emb_dim = args.emb
         self.patch_ratio = 8
@@ -239,8 +266,15 @@ class PDF_decoder(nn.Module):
         self.Bside.append(nn.Conv2d(emb_dim,out_ch,3,padding=1))
         self.Bside.append(nn.Conv2d(emb_dim,out_ch,3,padding=1))
 
-    def forward(self,img,depth,img_feature,depth_feature,patch_img_feature):
-        B,C,H,W = img.size()
+    def forward(
+        self,
+        img: torch.Tensor,
+        depth: torch.Tensor,
+        img_feature: Sequence[torch.Tensor],
+        depth_feature: Sequence[torch.Tensor],
+        patch_img_feature: Sequence[torch.Tensor]
+    ) -> list[torch.Tensor]:
+        B, C, H, W = img.size()
         side_5 = self.Bside[5](_upsample_like(img_feature[4],patch_img_feature[4]) + _upsample_like(depth_feature[4],patch_img_feature[4]) + patch_img_feature[4])
 
         img_L4,depth_L4,patch_L4 = self.FSE_mix[0](torch.cat([img_feature[4],img_feature[3]],dim=1),
@@ -279,7 +313,14 @@ class PDF_decoder(nn.Module):
         return [final_output,side_1,side_2,side_3,side_4,side_5]
 
 class PDFNet_process(nn.Module):
-    def __init__(self, encoder, decoder, depth_decoder, device, args):
+    def __init__(
+        self,
+        encoder: nn.Module,
+        decoder: PDF_decoder,
+        depth_decoder: PDF_depth_decoder,
+        device: torch.device | str,
+        args
+    ) -> None:
         super().__init__()
         self.patch_ratio = 8
         self.device = device
@@ -304,13 +345,13 @@ class PDFNet_process(nn.Module):
         self.SiLogLoss = SiLogLoss().to(device)
         self.IntegrityPriorLoss = IntegrityPriorLoss().to(device)
 
-    def _init_weights(self, m):
-        if isinstance(m, (nn.Conv2d)):
+    def _init_weights(self, m: nn.Module) -> None:
+        if isinstance(m, nn.Conv2d):
             trunc_normal_(m.weight, std=.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
-    
-    def loss_compute(self,Pred,GT):
+
+    def loss_compute(self, Pred: Sequence[torch.Tensor], GT: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         loss = 0
         for i in range(len(Pred)):
             if Pred[i].shape[2:] != GT.shape[2:]:
@@ -324,7 +365,12 @@ class PDFNet_process(nn.Module):
                 loss = loss + (structure_loss(up_pred,GT) + self.SSIMLoss(up_pred.sigmoid(),GT) * 0.5) * 0.5
         return loss, target_loss
     
-    def Integrity_Loss(self,Pred,depth,gt):
+    def Integrity_Loss(
+        self,
+        Pred: Sequence[torch.Tensor],
+        depth: torch.Tensor,
+        gt: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         loss = 0
         for i in range(len(Pred)):
             if Pred[i].shape[2:] != depth.shape[2:]:
@@ -338,7 +384,7 @@ class PDFNet_process(nn.Module):
                 loss = loss + (self.IntegrityPriorLoss(up_pred.sigmoid(),depth,gt)) * 0.5
         return loss, target_loss
 
-    def depth_loss(self,Pred,GT):
+    def depth_loss(self, Pred: Sequence[torch.Tensor], GT: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         loss = 0
         for i in range(len(Pred)):
             if Pred[i].shape[2:] != GT.shape[2:]:
@@ -352,8 +398,12 @@ class PDFNet_process(nn.Module):
                 loss = loss + (self.SiLogLoss(up_pred.sigmoid(),GT)) * 0.5
         return loss, target_loss
 
-    def encode(self,x,encoder):
-        latent_I1,latent_I2,latent_I3,latent_I4 = encoder(x)
+    def encode(
+        self,
+        x: torch.Tensor,
+        encoder: nn.Module
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        latent_I1, latent_I2, latent_I3, latent_I4 = encoder(x)
 
         latent_I1 = self.channel_mix1(latent_I1)
         latent_I2 = self.channel_mix2(latent_I2)
@@ -417,10 +467,16 @@ class PDFNet_process(nn.Module):
         output = torch.cat(output_list, dim=-2)
         return output
 
-    def forward(self,img,depth,gt,depth_gt):
+    def forward(
+        self,
+        img: torch.Tensor,
+        depth: torch.Tensor,
+        gt: torch.Tensor,
+        depth_gt: torch.Tensor
+    ) -> tuple[list[torch.Tensor], torch.Tensor, torch.Tensor]:
         depth = (depth-depth.min())/(depth.max()-depth.min())
         depth_gt = (depth_gt-depth_gt.min())/(depth_gt.max()-depth_gt.min())
-        B,C,H,W = img.size()
+        B, C, H, W = img.size()
         RIMG,RDEPTH,RGT = img, depth, gt
         if RDEPTH.shape[1] == 1:
             RDEPTH = RDEPTH.repeat(1,3,1,1)
@@ -461,7 +517,7 @@ class PDFNet_process(nn.Module):
         loss = loss + integrity_loss/2 + depth_loss/10
 
         if self.args.DEBUG:
-            print(pred_m[0].shape)
+            logger.debug(f"Prediction shape: {pred_m[0].shape}")
             H,W = RIMG.shape[-2],RIMG.shape[-1]
             Show_X = torch.cat([RIMG.reshape([-1,H,W])[:3].cpu().detach(),
                                 RDEPTH.reshape([-1,H,W])[:1].cpu().detach(),
@@ -472,9 +528,9 @@ class PDFNet_process(nn.Module):
         return [i.sigmoid() for i in pred_m], loss, target_loss
     
     @torch.no_grad()
-    def inference(self,img,depth):
+    def inference(self, img: torch.Tensor, depth: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         depth = (depth-depth.min())/(depth.max()-depth.min())
-        B,C,H,W = img.size()
+        B, C, H, W = img.size()
         RIMG,RDEPTH = img, depth
         if RDEPTH.shape[1] == 1:
             RDEPTH = RDEPTH.repeat(1,3,1,1)
@@ -504,8 +560,12 @@ class PDFNet_process(nn.Module):
         
         return pred_m[0].sigmoid(),pred_m[0]
 
-def build_model(args):
-    if args.back_bone == 'PDFNet_swinB':
-        return PDFNet_process(encoder=SwinB(args=args,in_chans=3,pretrained=True),
-                           decoder=PDF_decoder(args=args),depth_decoder=PDF_depth_decoder(args=args),
-                           device=args.device, args=args),args.model
+def build_model(args) -> tuple[PDFNet_process, str]:
+    if args.model == 'PDFNet_swinB':
+        return PDFNet_process(
+            encoder=SwinB(args=args, in_chans=3, pretrained=True),
+            decoder=PDF_decoder(args=args),
+            depth_decoder=PDF_depth_decoder(args=args),
+            device=args.device,
+            args=args
+        ), args.model

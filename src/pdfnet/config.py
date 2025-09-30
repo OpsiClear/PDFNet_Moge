@@ -5,11 +5,10 @@ This module defines all configuration types for PDFNet using modern Python
 type hints and dataclasses for type safety and validation.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Annotated
+from typing import Literal
+from typing import Annotated
 
 import tyro
 

@@ -8,12 +8,11 @@ Usage:
     uv run pdfnet.py evaluate --pred-dir results/ --gt-dir DATA/
 """
 
-from __future__ import annotations
 
 import sys
 import os
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 # Fix encoding issues on Windows
@@ -24,16 +23,17 @@ if sys.platform == "win32":
 
 import tyro
 import torch
+import logging
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent))
+from pdfnet.config import PDFNetConfig
 
-from src.pdfnet.config import PDFNetConfig
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class TrainCommand:
-    """Train a PDFNet model."""
+    """Train a PDFNet model using type-safe configuration."""
 
     config_file: Path | None = None
     """Load configuration from YAML file (uses defaults if not specified)."""
@@ -42,53 +42,50 @@ class TrainCommand:
     """Resume training from checkpoint."""
 
     def run(self) -> None:
-        """Execute training."""
-        from src.pdfnet.train import train_main
-        from src.pdfnet.args import get_args_parser
-        import argparse
+        """Execute training with type-safe configuration."""
+        try:
+            from pdfnet.train import train_from_config
+        except ImportError:
+            logger.error("Training module not available")
+            return
 
-        # Load config from file if provided, otherwise use defaults
-        config = PDFNetConfig.load(self.config_file) if self.config_file and self.config_file.exists() else PDFNetConfig()
+        # Load configuration
+        if self.config_file and self.config_file.exists():
+            config = PDFNetConfig.load(self.config_file)
+            logger.info("=" * 60)
+            logger.info(f"Training with config from: {self.config_file}")
+            logger.info("=" * 60)
+        else:
+            config = PDFNetConfig()
+            logger.info("=" * 60)
+            logger.info("Training with default configuration")
+            logger.info("=" * 60)
+            logger.info("Use --config-file to specify a custom configuration")
+            logger.info("=" * 60)
 
-        # Create legacy args for compatibility
-        parser = argparse.ArgumentParser(parents=[get_args_parser()])
-        args = parser.parse_args(args=[])
-
-        # Update args from typed config
-        args.model = config.model.name
-        args.batch_size = config.training.batch_size
-        args.epochs = config.training.epochs
-        args.lr = config.training.optimizer.lr
-        args.weight_decay = config.training.optimizer.weight_decay
-        args.data_path = str(config.data.root_path)
-        args.input_size = config.data.input_size
-        args.device = config.device
-        args.num_workers = config.training.num_workers
-        args.seed = config.training.seed
-        args.eval_metric = config.training.eval_metric
-        args.checkpoints_save_path = str(config.output.checkpoint_dir)
-        args.output_dir = str(config.output.save_dir)
-        args.DEBUG = config.debug
-
+        # Print config summary
+        logger.info(f"Model:         {config.model.name}")
+        logger.info(f"Dataset:       {config.data.root_path}")
+        logger.info(f"Epochs:        {config.training.epochs}")
+        logger.info(f"Batch size:    {config.training.batch_size}")
+        logger.info(f"Learning rate: {config.training.optimizer.lr}")
+        logger.info(f"Device:        {config.device}")
+        logger.info(f"Checkpoints:   {config.output.checkpoint_dir}")
         if self.resume:
-            args.resume = str(self.resume)
+            logger.info(f"Resume from:   {self.resume}")
+        logger.info("=" * 60)
 
-        # Print configuration
-        print("Training Configuration:")
-        print(f"  Model: {config.model.name}")
-        print(f"  Epochs: {config.training.epochs}")
-        print(f"  Batch Size: {config.training.batch_size}")
-        print(f"  Learning Rate: {config.training.optimizer.lr}")
-        print(f"  Dataset: {config.data.dataset} @ {config.data.root_path}")
-        print(f"  Device: {config.device}")
-
-        # Run training
-        train_main(args)
+        # Run training with type-safe config
+        train_from_config(
+            config=config,
+            resume=str(self.resume) if self.resume else '',
+            finetune=''
+        )
 
 
 @dataclass
 class InferCommand:
-    """Run inference on images."""
+    """Run inference on images or directories."""
 
     input: Path
     """Input image or directory path."""
@@ -99,25 +96,25 @@ class InferCommand:
     checkpoint: Path | None = Path("checkpoints/PDFNet_Best.pth")
     """Model checkpoint path."""
 
-    batch_size: int = 1
-    """Batch size for directory processing."""
+    batch_size: int = 4
+    """Number of images to process in each batch (1-32)."""
 
     use_tta: bool = False
-    """Enable test-time augmentation."""
+    """Enable test-time augmentation for better accuracy (slower)."""
 
     device: Literal["cuda", "cpu", "auto"] = "auto"
-    """Device for inference."""
+    """Device for inference (auto selects CUDA if available)."""
 
     use_moge: bool = True
-    """Use MoGe for depth estimation."""
+    """Use MoGe depth estimation model for better results."""
 
     visualize: bool = False
-    """Visualize results (for single images)."""
+    """Display visualization for single image results."""
 
     def run(self) -> None:
         """Execute inference."""
-        from src.pdfnet.inference import PDFNetInference
-        from src.pdfnet.config import PDFNetConfig
+        from pdfnet.inference import PDFNetInference
+        from pdfnet.config import PDFNetConfig
         import cv2
         import numpy as np
 
@@ -136,7 +133,7 @@ class InferCommand:
         config.device = device
 
         # Initialize inference engine
-        print(f"Loading model from: {self.checkpoint}")
+        logger.info(f"Loading model from: {self.checkpoint}")
         engine = PDFNetInference(config)
 
         # Determine output path
@@ -148,13 +145,13 @@ class InferCommand:
 
         # Process based on input type
         if self.input.is_file():
-            print(f"Processing image: {self.input}")
+            logger.info(f"Processing image: {self.input}")
             result = engine.predict(str(self.input), use_tta=self.use_tta)
 
             # Save result
             result_img = (result * 255).astype(np.uint8)
             cv2.imwrite(str(self.output), result_img)
-            print(f"Result saved to: {self.output}")
+            logger.info(f"Result saved to: {self.output}")
 
             # Visualize if requested
             if self.visualize:
@@ -173,7 +170,7 @@ class InferCommand:
                 plt.show()
 
         elif self.input.is_dir():
-            print(f"Processing directory: {self.input}")
+            logger.info(f"Processing directory: {self.input}")
             engine.predict_directory(
                 str(self.input),
                 str(self.output),
@@ -186,95 +183,78 @@ class InferCommand:
 
 
 @dataclass
-class TestCommand:
-    """Test model on evaluation datasets."""
+class BenchmarkCommand:
+    """Benchmark model performance on standard DIS datasets."""
 
     checkpoint: Path = Path("checkpoints/PDFNet_Best.pth")
-    """Model checkpoint path."""
+    """Path to model checkpoint file."""
 
     data_path: Path = Path("DATA/DIS-DATA")
-    """Dataset root path."""
+    """Path to DIS dataset root directory."""
 
     output_dir: Path = Path("results")
-    """Output directory for results."""
+    """Output directory for benchmark results."""
 
-    datasets: list[str] = field(default_factory=lambda: ["DIS-VD", "DIS-TE1", "DIS-TE2", "DIS-TE3", "DIS-TE4"])
-    """Datasets to test on."""
+    datasets: list[str] | None = None
+    """Dataset names to benchmark (default: all DIS test sets: DIS-TE1,TE2,TE3,TE4)."""
 
-    batch_size: int = 1
-    """Batch size for testing."""
+    batch_size: int = 4
+    """Number of images to process in each batch (1-32)."""
 
     use_tta: bool = False
-    """Enable test-time augmentation."""
+    """Enable test-time augmentation (slower but more accurate)."""
 
     compute_metrics: bool = True
-    """Compute evaluation metrics."""
+    """Compute evaluation metrics (MAE, F1, etc.) after inference."""
 
     device: Literal["cuda", "cpu", "auto"] = "auto"
-    """Device for testing."""
+    """Computation device (auto selects CUDA if available)."""
+
+    debug: bool = False
+    """Debug mode: process only 5 images per dataset for quick testing."""
 
     def run(self) -> None:
-        """Execute testing."""
-        from src.pdfnet.metric_tools.Test import test_pdfnet
-        from src.pdfnet.args import get_args_parser
-        import argparse
+        """Execute benchmarking."""
+        from pdfnet.metric_tools.benchmark import benchmark_pdfnet
 
-        # Create legacy args
-        parser = argparse.ArgumentParser(parents=[get_args_parser()])
-        args = parser.parse_args(args=[])
-
-        # Update from typed config
-        args.checkpoint_path = str(self.checkpoint)
-        args.data_path = str(self.data_path)
-        args.output_dir = str(self.output_dir)
-        args.test_batch_size = self.batch_size
-        args.use_tta = self.use_tta
-        args.compute_metrics = self.compute_metrics
-        args.input_size = 1024
-
-        if self.device == "auto":
-            args.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            args.device = self.device
-
-        # Set test datasets
-        args.datasets = self.datasets
-
-        print("Testing Configuration:")
-        print(f"  Checkpoint: {self.checkpoint}")
-        print(f"  Datasets: {', '.join(self.datasets)}")
-        print(f"  Output: {self.output_dir}")
-        print(f"  TTA: {self.use_tta}")
-        print(f"  Device: {args.device}")
-
-        # Run testing
-        test_pdfnet(args)
+        # Run benchmark
+        benchmark_pdfnet(
+            checkpoint_path=self.checkpoint,
+            data_path=self.data_path,
+            output_dir=self.output_dir,
+            datasets=self.datasets,
+            batch_size=self.batch_size,
+            use_tta=self.use_tta,
+            device=self.device,
+            compute_metrics=self.compute_metrics,
+            debug=self.debug
+        )
 
 
 @dataclass
 class EvaluateCommand:
-    """Evaluate predictions against ground truth."""
+    """Evaluate prediction results against ground truth masks."""
 
     pred_dir: Path
-    """Directory containing predictions."""
+    """Directory containing prediction masks (PNG/JPG files)."""
 
     gt_dir: Path | None = None
-    """Directory containing ground truth."""
+    """Ground truth directory (uses default DIS-5K paths if not specified)."""
 
     output_dir: Path | None = None
-    """Output directory for results."""
+    """Output directory for metrics CSV and summary files."""
 
     datasets: list[str] | None = None
-    """Dataset names to evaluate."""
+    """Dataset names to evaluate (e.g., DIS-TE1 DIS-TE2)."""
 
     n_jobs: int = 12
-    """Number of parallel jobs."""
+    """Number of parallel workers for metric computation (1-64)."""
 
     def run(self) -> None:
         """Execute evaluation."""
-        from src.pdfnet.metric_tools.soc_metrics import compute_metrics
+        from pdfnet.metric_tools.soc_metrics import compute_metrics
 
-        print(f"Evaluating predictions in: {self.pred_dir}")
+        logger.info(f"Evaluating predictions in: {self.pred_dir}")
 
         # Build ground truth mapping
         gt_dir_dict = None
@@ -285,7 +265,7 @@ class EvaluateCommand:
                     dataset_gt = self.gt_dir / dataset / "masks"
                     if dataset_gt.exists():
                         gt_dir_dict[dataset] = str(dataset_gt)
-                        print(f"  Found GT for {dataset}: {dataset_gt}")
+                        logger.info(f"Found GT for {dataset}: {dataset_gt}")
             else:
                 # Auto-detect datasets
                 for subdir in self.pred_dir.iterdir():
@@ -294,7 +274,7 @@ class EvaluateCommand:
                         dataset_gt = self.gt_dir / dataset_name / "masks"
                         if dataset_gt.exists():
                             gt_dir_dict[dataset_name] = str(dataset_gt)
-                            print(f"  Found GT for {dataset_name}: {dataset_gt}")
+                            logger.info(f"Found GT for {dataset_name}: {dataset_gt}")
 
         # Run evaluation
         output_dir = self.output_dir or self.pred_dir
@@ -311,98 +291,98 @@ class DownloadCommand:
     """Download model weights and show dataset instructions."""
 
     weights: bool = True
-    """Download model weights."""
+    """Download model weights (PDFNet and Swin Transformer)."""
 
     dataset_info: bool = False
-    """Show dataset download instructions."""
+    """Show instructions for downloading DIS-5K dataset."""
 
     def run(self) -> None:
         """Execute download."""
         if self.weights:
-            print("Downloading model weights...")
+            logger.info("Downloading model weights...")
             import subprocess
             result = subprocess.run(["uv", "run", "download.py"], capture_output=True, text=True)
 
             if result.returncode == 0:
-                print("✅ Download completed successfully!")
-                print(result.stdout)
+                logger.info("Download completed successfully")
+                logger.info(result.stdout)
             else:
-                print("❌ Download failed!")
-                print(result.stderr)
+                logger.error("Download failed")
+                logger.error(result.stderr)
 
         if self.dataset_info:
-            print("\n📦 Dataset Download Instructions:")
-            print("=" * 50)
-            print("\nDIS-5K Dataset:")
-            print("  Website: https://github.com/xuebinqin/DIS")
-            print("  Place in: DATA/DIS-DATA/")
-            print("\nExpected structure:")
-            print("  DATA/")
-            print("  └── DIS-DATA/")
-            print("      ├── DIS-TR/")
-            print("      ├── DIS-VD/")
-            print("      ├── DIS-TE1/")
-            print("      ├── DIS-TE2/")
-            print("      ├── DIS-TE3/")
-            print("      └── DIS-TE4/")
+            logger.info("\nDataset Download Instructions:")
+            logger.info("=" * 50)
+            logger.info("\nDIS-5K Dataset:")
+            logger.info("  Website: https://github.com/xuebinqin/DIS")
+            logger.info("  Place in: DATA/DIS-DATA/")
+            logger.info("\nExpected structure:")
+            logger.info("  DATA/")
+            logger.info("  └── DIS-DATA/")
+            logger.info("      ├── DIS-TR/")
+            logger.info("      ├── DIS-VD/")
+            logger.info("      ├── DIS-TE1/")
+            logger.info("      ├── DIS-TE2/")
+            logger.info("      ├── DIS-TE3/")
+            logger.info("      └── DIS-TE4/")
 
 
 @dataclass
 class ConfigCommand:
-    """Configuration management utilities."""
+    """Manage PDFNet configuration files."""
 
     action: Literal["show", "create", "validate"] = "show"
-    """Action to perform."""
+    """Action to perform: show, create, or validate."""
 
     config_file: Path | None = None
-    """Configuration file path."""
+    """Configuration file path (YAML format)."""
 
     output: Path | None = None
-    """Output path for created config."""
+    """Output path for newly created config file."""
 
     def run(self) -> None:
         """Execute configuration command."""
         if self.action == "show":
             if self.config_file and self.config_file.exists():
                 config = PDFNetConfig.load(self.config_file)
-                print(f"Configuration from {self.config_file}:")
+                logger.info(f"Configuration from {self.config_file}:")
             else:
                 config = PDFNetConfig()
-                print("Default configuration:")
+                logger.info("Default configuration:")
 
             import yaml
             from dataclasses import asdict
-            print(yaml.dump(asdict(config), default_flow_style=False))
+            logger.info(yaml.dump(asdict(config), default_flow_style=False))
 
         elif self.action == "create":
             output_path = self.output or Path("config/custom.yaml")
             config = PDFNetConfig()
             config.save(output_path)
-            print(f"✅ Configuration saved to: {output_path}")
+            logger.info(f"Configuration saved to: {output_path}")
 
         elif self.action == "validate":
             if not self.config_file or not self.config_file.exists():
-                print("❌ Config file not found!")
+                logger.error("Config file not found")
                 return
 
             try:
                 config = PDFNetConfig.load(self.config_file)
-                print(f"✅ Configuration is valid: {self.config_file}")
+                logger.info(f"Configuration is valid: {self.config_file}")
 
                 # Check paths
                 missing_paths = []
                 if config.model.pretrained_swin and not config.model.pretrained_swin.exists():
-                    missing_paths.append(f"  ⚠️  Pretrained weights: {config.model.pretrained_swin}")
+                    missing_paths.append(f"  Pretrained weights: {config.model.pretrained_swin}")
                 if not config.data.root_path.exists():
-                    missing_paths.append(f"  ⚠️  Data root: {config.data.root_path}")
+                    missing_paths.append(f"  Data root: {config.data.root_path}")
 
                 if missing_paths:
-                    print("\nMissing paths:")
+                    logger.warning("Missing paths:")
                     for path in missing_paths:
-                        print(path)
+                        logger.warning(path)
 
             except Exception as e:
-                print(f"❌ Invalid configuration: {e}")
+                logger.error(f"Invalid configuration: {e}")
 
 
 def main() -> None:
@@ -413,7 +393,7 @@ def main() -> None:
         tyro.extras.subcommand_cli_from_dict({
             "train": TrainCommand,
             "infer": InferCommand,
-            "test": TestCommand,
+            "benchmark": BenchmarkCommand,
             "evaluate": EvaluateCommand,
             "download": DownloadCommand,
             "config": ConfigCommand,

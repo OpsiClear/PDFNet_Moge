@@ -5,23 +5,24 @@ This module contains the core model components, losses, and utilities.
 """
 
 from .losses import (
-    structure_loss,
-    iou_loss,
-    dice_loss,
-    SiLogLoss,
+    BCEWithLogitsLoss,
+    DiceLoss,
+    IoULoss,
     SSIMLoss,
+    FocalLoss,
     IntegrityPriorLoss,
-    GANLoss,
+    CombinedLoss,
+    LossConfig,
 )
 
 __all__ = [
-    "structure_loss",
-    "iou_loss", 
-    "dice_loss",
-    "SiLogLoss",
+    "BCEWithLogitsLoss",
+    "DiceLoss",
+    "IoULoss",
     "SSIMLoss",
+    "FocalLoss",
     "IntegrityPriorLoss",
-    "GANLoss"
+    "CombinedLoss",
+    "LossConfig",
 ]
- 
  

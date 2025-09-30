@@ -5,17 +5,25 @@
 # Written by Ze Liu, Yutong Lin, Yixuan Wei
 # --------------------------------------------------------
 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 import numpy as np
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.layers import DropPath, to_2tuple, trunc_normal_
 
 class Mlp(nn.Module):
-    """ Multilayer perceptron."""
+    """Multilayer perceptron."""
 
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int | None = None,
+        out_features: int | None = None,
+        act_layer: type[nn.Module] = nn.GELU,
+        drop: float = 0.
+    ) -> None:
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -24,7 +32,7 @@ class Mlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop(x)
@@ -33,14 +41,16 @@ class Mlp(nn.Module):
         return x
 
 
-def window_partition(x, window_size):
+def window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
     """
+    Partition input tensor into windows.
+
     Args:
-        x: (B, H, W, C)
-        window_size (int): window size
+        x: Input tensor (B, H, W, C)
+        window_size: Window size
 
     Returns:
-        windows: (num_windows*B, window_size, window_size, C)
+        windows: Partitioned windows (num_windows*B, window_size, window_size, C)
     """
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
@@ -48,16 +58,18 @@ def window_partition(x, window_size):
     return windows
 
 
-def window_reverse(windows, window_size, H, W):
+def window_reverse(windows: torch.Tensor, window_size: int, H: int, W: int) -> torch.Tensor:
     """
+    Reverse window partition.
+
     Args:
-        windows: (num_windows*B, window_size, window_size, C)
-        window_size (int): Window size
-        H (int): Height of image
-        W (int): Width of image
+        windows: Windowed tensor (num_windows*B, window_size, window_size, C)
+        window_size: Window size
+        H: Height of image
+        W: Width of image
 
     Returns:
-        x: (B, H, W, C)
+        x: Reconstructed tensor (B, H, W, C)
     """
     B = int(windows.shape[0] / (H * W / window_size / window_size))
     x = windows.view(B, H // window_size, W // window_size, window_size, window_size, -1)
@@ -79,8 +91,16 @@ class WindowAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
-
+    def __init__(
+        self,
+        dim: int,
+        window_size: tuple[int, int],
+        num_heads: int,
+        qkv_bias: bool = True,
+        qk_scale: float | None = None,
+        attn_drop: float = 0.,
+        proj_drop: float = 0.
+    ) -> None:
         super().__init__()
         self.dim = dim
         self.window_size = window_size  # Wh, Ww
@@ -95,7 +115,7 @@ class WindowAttention(nn.Module):
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing='ij'))  # 2, Wh, Ww
         coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
@@ -113,12 +133,15 @@ class WindowAttention(nn.Module):
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, mask=None):
-        """ Forward function.
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        """Forward function.
 
         Args:
             x: input features with shape of (num_windows*B, N, C)
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+
+        Returns:
+            Output tensor with attention applied
         """
         B_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -647,7 +670,7 @@ def SwinS(pretrained=True):
 def SwinB(args,in_chans=4,pretrained=True):
     model = SwinTransformer(in_chans=in_chans,embed_dim=128, depths=[2, 2, 18, 2], num_heads=[4, 8, 16, 32], window_size=12, drop_path_rate=args.drop_path, ape=True)
     if pretrained is True:
-        checkpoint = torch.load(r'checkpoints/swin_base_patch4_window12_384_22k.pth', map_location='cpu')
+        checkpoint = torch.load(r'checkpoints/swin_base_patch4_window12_384_22k.pth', map_location='cpu', weights_only=False)
         if 'model' in checkpoint:
             checkpoint_model = checkpoint['model']
         else:

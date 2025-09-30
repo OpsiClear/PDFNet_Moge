@@ -8,6 +8,9 @@ import torch.nn as nn
 import os
 import glob
 import torchvision.transforms as transforms
+import logging
+
+logger = logging.getLogger(__name__)
 
 class EMA():
     def __init__(self, model, decay):
@@ -47,8 +50,10 @@ def _upsample_like(src,tar):
     return src
 
 def optimizer_kwargs(cfg):
-    """ cfg/argparse to kwargs helper
-    Convert optimizer args in argparse args or cfg like object to keyword args for updated create fn.
+    """
+    Convert optimizer config to kwargs for optimizer creation.
+    
+    :param cfg: Configuration object with optimizer parameters
     """
     kwargs = dict(
         opt=cfg.opt,
@@ -129,13 +134,14 @@ def check_keywords_in_name(name, keywords=()):
     return isin
 
 def keep_n_files(directory, n):
-    # 获取目录下所有文件的路径和最后修改时间
+    """Keep only the n most recent files in a directory, delete the rest."""
+    # Get all file paths with their modification times
     files = [(file_path, os.path.getmtime(file_path)) for file_path in glob.glob(os.path.join(directory, '*'))]
-    
-    # 按照最后修改时间从近到远排序
+
+    # Sort by modification time (newest first)
     files.sort(key=lambda x: x[1], reverse=True)
-    
-    # 删除多余的文件，保留最近的n个文件
+
+    # Delete excess files, keeping only the n most recent
     for file_path, _ in files[n:]:
         os.remove(file_path)
 
@@ -170,7 +176,7 @@ def eval_cycle(this_checkpoints_dir,model,epoch,test_datatset,test_loader,best_v
                 F1[valid_iter+k,:] = f1.cpu().detach()
                 MAE[valid_iter+k] = mae.cpu().detach()
                 ACC[valid_iter+k] = model.acc(pred_cls,labels_v+1).cpu().detach()
-                print(f'{valid_iter+k+1}/{val_num}, image_name: '+name[k])
+                logger.debug(f'Processing {valid_iter+k+1}/{val_num}: {name[k]}')
             valid_iter += inputs.shape[0]
             # break
         PRE_m = np.mean(PRE,0)
@@ -227,7 +233,7 @@ def eval(this_checkpoints_dir,model,epoch,test_datatset,test_loader,best_valid,t
                 REC[valid_iter+k,:] = rec.cpu().detach()
                 F1[valid_iter+k,:] = f1.cpu().detach()
                 MAE[valid_iter+k] = mae.cpu().detach()
-                print(f'{valid_iter+k+1}/{val_num}, image_name: '+name[k])
+                logger.debug(f'Processing {valid_iter+k+1}/{val_num}: {name[k]}')
             valid_iter += inputs.shape[0]
         PRE_m = np.mean(PRE,0)
         REC_m = np.mean(REC,0)

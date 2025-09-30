@@ -21,12 +21,13 @@ dependencies = [
   "gradio_imageslider>=0.0.18",
   "loadimg>=0.1.1",
   "spaces>=0.1.0",
-  "tyro>=0.9.32",
   "moge",
   "ipykernel>=6.30.1",
-  "ttach>=0.0.3",
   "scikit-image>=0.25.2",
   "gdown>=5.2.0",
+  "tyro>=0.9.32",
+  "ipywidgets>=8.1.7",
+  "tensorboard>=2.20.0",
 ]
 description = "PDFNet: Patch-Depth Fusion for Dichotomous Image Segmentation"
 name = "pdfnet"
@@ -34,9 +35,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 version = "0.1.0"
 authors = [
-  {name = "Xianjie Liu", email = ""},
-  {name = "Keren Fu", email = ""},
-  {name = "Qijun Zhao", email = ""},
+  {name = "OpsiClear", email = ""},
+]
+maintainers = [
+  {name = "OpsiClear", email = ""},
 ]
 license = {file = "LICENSE"}
 keywords = [
@@ -61,14 +63,14 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Tennineee/PDFNet"
-Repository = "https://github.com/Tennineee/PDFNet"
-Documentation = "https://github.com/Tennineee/PDFNet"
-"Bug Reports" = "https://github.com/Tennineee/PDFNet/issues"
+Homepage = "https://github.com/OpsiClear/PDFNet_Moge"
+Repository = "https://github.com/OpsiClear/PDFNet_Moge"
+Documentation = "https://github.com/OpsiClear/PDFNet_Moge"
+"Bug Reports" = "https://github.com/OpsiClear/PDFNet_Moge/issues"
+"Original Repository" = "https://github.com/Tennine2077/PDFNet"
 
 [project.scripts]
-pdfnet-train = "pdfnet.train:main"
-pdfnet-demo = "pdfnet.demo:main"
+pdfnet = "pdfnet.__main__:main"
 
 [tool.uv.sources]
 torch = [

@@ -12,8 +12,10 @@ from .metrics import Fmeasure, WeightedFmeasure, Smeasure, Emeasure, MAE
 from joblib import Parallel, delayed
 import numpy as np
 import pandas as pd
-import argparse
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 _EPS = 1e-16
 _TYPE = np.float64
@@ -48,14 +50,14 @@ def once_compute(gt_root, gt_name, pred_root, FM, WFM, SM, EM, MAE):
     pred = cv2.imread(pred_path, cv2.IMREAD_GRAYSCALE)
 
     if gt is None or pred is None:
-        print(f"Warning: Could not read images - GT: {gt_path}, Pred: {pred_path}")
+        logger.warning(f"Could not read images - GT: {gt_path}, Pred: {pred_path}")
         return None
 
     gtsize = gt.shape
     predsize = pred.shape
 
     if gtsize[0] == predsize[1] and gtsize[1] == predsize[0] and gtsize[0] != gtsize[1]:
-        print(f"Warning: Transposed dimensions detected in {pred_path}")
+        logger.warning(f"Transposed dimensions detected in {pred_path}")
 
     if predsize[0] != gtsize[0] or predsize[1] != gtsize[1]:
         pred = cv2.resize(pred, (gtsize[1], gtsize[0]))
@@ -90,7 +92,7 @@ def once_get(gt_root, pred_root, FM, WFM, SM, EM, MAE, testdir, i, n_jobs):
     results = [r for r in results if r is not None]
 
     if not results:
-        print(f"Warning: No valid results for {testdir}")
+        logger.warning(f"No valid results for {testdir}")
         return pd.DataFrame()
 
     precisions, recalls, wfm, sm, em, mae = [], [], [], [], [], []
@@ -123,12 +125,12 @@ def once_get(gt_root, pred_root, FM, WFM, SM, EM, MAE, testdir, i, n_jobs):
 
     results_df = pd.DataFrame.from_dict([results]).T
 
-    print(
-        f"Results for {testdir}_{i}:",
-        f"maxFm: {fmeasure.max():.3f},",
-        f"wFmeasure: {wfm:.3f},",
-        f"MAE: {mae:.3f},",
-        f"Smeasure: {sm:.3f},",
+    logger.info(
+        f"Results for {testdir}_{i}: "
+        f"maxFm: {fmeasure.max():.3f}, "
+        f"wFmeasure: {wfm:.3f}, "
+        f"MAE: {mae:.3f}, "
+        f"Smeasure: {sm:.3f}, "
         f"meanEm: {em.mean():.3f}"
     )
 
@@ -174,7 +176,7 @@ def compute_metrics(pred_dir, gt_dir_dict=None, output_dir=None, n_jobs=12):
                         break
 
     if not gt_dir_dict:
-        print("Warning: No ground truth directories found or specified")
+        logger.warning("No ground truth directories found or specified")
         return
 
     allfile = pd.DataFrame()
@@ -183,14 +185,14 @@ def compute_metrics(pred_dir, gt_dir_dict=None, output_dir=None, n_jobs=12):
         pred_root = os.path.join(pred_dir, dataset_name)
 
         if not os.path.exists(pred_root):
-            print(f"Warning: Prediction directory doesn't exist: {pred_root}")
+            logger.warning(f"Prediction directory doesn't exist: {pred_root}")
             continue
 
         if not os.path.exists(gt_root):
-            print(f"Warning: Ground truth directory doesn't exist: {gt_root}")
+            logger.warning(f"Ground truth directory doesn't exist: {gt_root}")
             continue
 
-        print(f"\nEvaluating {dataset_name}...")
+        logger.info(f"Evaluating {dataset_name}...")
         onefile = once_get(gt_root, pred_root, FM, WFM, SM, EM, MAE_metric, dataset_name, i, n_jobs)
 
         if not onefile.empty:
@@ -199,38 +201,21 @@ def compute_metrics(pred_dir, gt_dir_dict=None, output_dir=None, n_jobs=12):
     if not allfile.empty:
         output_path = os.path.join(output_dir, "metrics_results.csv")
         allfile.to_csv(output_path)
-        print(f"\nResults saved to: {output_path}")
+        logger.info(f"Results saved to: {output_path}")
     else:
-        print("\nNo results to save")
-
-
-def main():
-    """Main entry point for metrics evaluation."""
-    parser = argparse.ArgumentParser(description='Compute SOC metrics for salient object detection')
-
-    parser.add_argument('--pred_dir', type=str, required=True,
-                        help='Directory containing predictions')
-    parser.add_argument('--gt_dir', type=str, default=None,
-                        help='Directory containing ground truth (or will auto-detect)')
-    parser.add_argument('--output_dir', type=str, default=None,
-                        help='Directory to save results (default: pred_dir)')
-    parser.add_argument('--n_jobs', type=int, default=12,
-                        help='Number of parallel jobs')
-    parser.add_argument('--datasets', nargs='+', default=None,
-                        help='List of dataset names to evaluate')
-
-    args = parser.parse_args()
-
-    # Build ground truth directory dictionary
-    gt_dir_dict = {}
-    if args.gt_dir and args.datasets:
-        for dataset in args.datasets:
-            gt_path = os.path.join(args.gt_dir, dataset, 'masks')
-            if os.path.exists(gt_path):
-                gt_dir_dict[dataset] = gt_path
-
-    compute_metrics(args.pred_dir, gt_dir_dict, args.output_dir, args.n_jobs)
+        logger.warning("No results to save")
 
 
 if __name__ == '__main__':
-    main()
+    logger.info("=" * 70)
+    logger.info("SOC Metrics Evaluation")
+    logger.info("=" * 70)
+    logger.info("This is a utility module. Use the evaluate command in the tyro CLI:")
+    logger.info("  uv run pdfnet.py evaluate --pred-dir results --gt-dir DATA/DIS-DATA")
+    logger.info("  python -m pdfnet evaluate --pred-dir results --gt-dir DATA/DIS-DATA")
+    logger.info("=" * 70)
+    logger.info("Or import directly in Python:")
+    logger.info("  from pdfnet.metric_tools.soc_metrics import compute_metrics")
+    logger.info("=" * 70)
+    import sys
+    sys.exit(1)
