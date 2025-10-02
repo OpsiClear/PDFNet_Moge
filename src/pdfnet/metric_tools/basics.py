@@ -1,6 +1,5 @@
 import os
 
-from skimage import io
 import torch
 import numpy as np
 import cv2
@@ -106,7 +105,7 @@ def f1_mae_torch(pred, gt, valid_dataset, idx, mybins, hypar):
         )
         if not os.path.exists(dataset_folder):
             os.mkdir(dataset_folder)
-        io.imsave(
+        cv2.imwrite(
             os.path.join(
                 dataset_folder, valid_dataset.dataset["im_name"][idx] + ".png"
             ),

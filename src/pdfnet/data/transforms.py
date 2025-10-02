@@ -16,7 +16,6 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
-from PIL import Image
 
 
 class SampleDict(TypedDict, total=False):
@@ -130,7 +129,7 @@ class ToTensor:
         return sample
 
     def _to_tensor(
-        self, data: npt.NDArray | torch.Tensor | Image.Image, converter: T.ToTensor
+        self, data: npt.NDArray | torch.Tensor, converter: T.ToTensor
     ) -> torch.Tensor:
         """Convert various data types to tensor."""
         if isinstance(data, torch.Tensor):
@@ -142,8 +141,6 @@ class ToTensor:
             elif tensor.dim() == 3 and tensor.shape[-1] in (1, 3):
                 tensor = tensor.permute(2, 0, 1)
             return tensor
-        elif isinstance(data, Image.Image):
-            return converter(data)
         else:
             raise TypeError(f"Unsupported data type: {type(data)}")
 

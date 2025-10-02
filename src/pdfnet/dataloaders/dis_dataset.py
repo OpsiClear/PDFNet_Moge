@@ -6,7 +6,6 @@ import numpy as np
 import cv2
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
-from PIL import Image, ImageEnhance
 import torch.nn.functional as F
 from torchvision.transforms.functional import normalize
 from torchvision.transforms import ColorJitter
@@ -124,25 +123,36 @@ class GOSColorEnhance:
 
     def __call__(self, sample: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         if random.random() < self.prob:
+            # Convert tensor to numpy array (H, W, C) format for OpenCV
             image = sample['image'] * 255.0
-            # print(image.max())
-            image = Image.fromarray(np.uint8(image.permute(1,2,0))).convert('RGB')
+            image = np.uint8(image.permute(1, 2, 0).cpu().numpy())
 
+            # Apply brightness adjustment
             bright_intensity = random.randint(5, 15) / 10.0
-            image = ImageEnhance.Brightness(image).enhance(bright_intensity)
-            
-            contrast_intensity = random.randint(5, 15) / 10.0
-            image = ImageEnhance.Contrast(image).enhance(contrast_intensity)
-            
-            color_intensity = random.randint(0, 20) / 10.0
-            image = ImageEnhance.Color(image).enhance(color_intensity)
-            
-            sharp_intensity = random.randint(0, 30) / 10.0
-            image = ImageEnhance.Sharpness(image).enhance(sharp_intensity)
+            image = cv2.convertScaleAbs(image, alpha=bright_intensity, beta=0)
 
-            image = torch.from_numpy(np.array(image)).permute(2,0,1).float() / 255.0 
+            # Apply contrast adjustment
+            contrast_intensity = random.randint(5, 15) / 10.0
+            image = cv2.convertScaleAbs(image, alpha=contrast_intensity, beta=128 * (1 - contrast_intensity))
+
+            # Apply color (saturation) adjustment
+            color_intensity = random.randint(0, 20) / 10.0
+            hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV).astype(np.float32)
+            hsv[:, :, 1] = np.clip(hsv[:, :, 1] * color_intensity, 0, 255)
+            image = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+
+            # Apply sharpness adjustment
+            sharp_intensity = random.randint(0, 30) / 10.0
+            if sharp_intensity > 1.0:
+                kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]]) * (sharp_intensity - 1.0) / 2.0
+                kernel[1, 1] = 1 + kernel[1, 1]
+                image = cv2.filter2D(image, -1, kernel)
+                image = np.clip(image, 0, 255).astype(np.uint8)
+
+            # Convert back to tensor
+            image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
             sample['image'] = image
-        
+
         return sample
 
 class GOSColorJitter:

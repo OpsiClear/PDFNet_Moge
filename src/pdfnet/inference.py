@@ -667,6 +667,11 @@ class PDFNetInference:
         Args:
             config: PDFNet configuration object (creates default if None)
             checkpoint_path: Override path to model checkpoint
+
+        Raises:
+            ImportError: If MoGe is not installed (when use_moge=True)
+            FileNotFoundError: If model checkpoints not found
+            RuntimeError: If model loading fails
         """
         self.config = config or PDFNetConfig()
         self.device = self._setup_device()

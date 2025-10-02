@@ -9,7 +9,7 @@ import os
 import cv2
 from tqdm import tqdm
 from .metrics import Fmeasure, WeightedFmeasure, Smeasure, Emeasure, MAE
-from joblib import Parallel, delayed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -83,10 +83,20 @@ def once_get(gt_root, pred_root, FM, WFM, SM, EM, MAE, testdir, i, n_jobs):
     gt_name_list = get_image_files(pred_root)
     gt_name_list = sorted([x.split('/')[-1] for x in gt_name_list])
 
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(once_compute)(gt_root, gt_name, pred_root, FM, WFM, SM, EM, MAE)
-        for gt_name in tqdm(gt_name_list, total=len(gt_name_list), desc=f"Processing {testdir}")
-    )
+    # Use ProcessPoolExecutor for parallel processing
+    results = []
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        # Submit all tasks
+        futures = {
+            executor.submit(once_compute, gt_root, gt_name, pred_root, FM, WFM, SM, EM, MAE): gt_name
+            for gt_name in gt_name_list
+        }
+
+        # Collect results with progress bar
+        for future in tqdm(as_completed(futures), total=len(gt_name_list), desc=f"Processing {testdir}"):
+            result = future.result()
+            if result is not None:
+                results.append(result)
 
     # Filter out None results (failed computations)
     results = [r for r in results if r is not None]

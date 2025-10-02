@@ -140,7 +140,7 @@ def _build_model_architecture(model_name: Literal["PDFNet_swinB", "PDFNet_swinL"
 def load_moge_depth_model(
     checkpoint_path: Path | str | None = None,
     device: torch.device | str = "auto"
-) -> nn.Module | None:
+) -> nn.Module:
     """
     Load MoGe depth estimation model.
 
@@ -149,28 +149,43 @@ def load_moge_depth_model(
         device: Device to load model on
 
     Returns:
-        Loaded MoGe model or None if unavailable
+        Loaded MoGe model
+
+    Raises:
+        ImportError: If MoGe is not installed
+        FileNotFoundError: If checkpoint not found
+        RuntimeError: If model loading fails
 
     Example:
         >>> moge = load_moge_depth_model("checkpoints/moge/model.pt")
     """
     try:
         from moge.model.v2 import MoGeModel
+    except ImportError as e:
+        raise ImportError(
+            "MoGe is not installed. Install it with:\n"
+            "  pip install git+https://github.com/microsoft/MoGe.git\n"
+            "Or disable depth estimation by setting config.inference.use_moge = False"
+        ) from e
 
-        # Resolve device
-        if device == "auto":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        device = torch.device(device)
+    # Resolve device
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device)
 
-        # Load model
-        if checkpoint_path is None:
-            checkpoint_path = Path("checkpoints/moge/moge-2-vitl-normal/model.pt")
+    # Load model
+    if checkpoint_path is None:
+        checkpoint_path = Path("checkpoints/moge/moge-2-vitl-normal/model.pt")
 
-        ckpt_path = Path(checkpoint_path)
-        if not ckpt_path.exists():
-            warnings.warn(f"MoGe checkpoint not found at {ckpt_path}")
-            return None
+    ckpt_path = Path(checkpoint_path)
+    if not ckpt_path.exists():
+        raise FileNotFoundError(
+            f"MoGe checkpoint not found at: {ckpt_path}\n"
+            f"Download it from the MoGe repository or disable depth estimation.\n"
+            f"To disable: set config.inference.use_moge = False"
+        )
 
+    try:
         logger.info(f"Loading MoGe model from: {ckpt_path}")
         model = MoGeModel.from_pretrained(str(ckpt_path))
         model = model.to(device)
@@ -178,13 +193,8 @@ def load_moge_depth_model(
 
         logger.info(f"MoGe model loaded on {device}")
         return model
-
-    except ImportError:
-        warnings.warn("MoGe not installed. Depth estimation unavailable.")
-        return None
     except Exception as e:
-        warnings.warn(f"Failed to load MoGe model: {e}")
-        return None
+        raise RuntimeError(f"Failed to load MoGe model: {e}") from e
 
 
 def get_model_info(model: nn.Module) -> dict[str, int | float]:
